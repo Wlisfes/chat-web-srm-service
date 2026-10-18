@@ -175,7 +175,15 @@ jobs:
                   GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   set -eu
-                  printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username '${{ github.actor }}' --password-stdin
+                  # GHCR 偶发 TLS 超时，按递增间隔重试登录，避免一次网络抖动导致部署失败。
+                  attempt=1
+                  until printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username '${{ github.actor }}' --password-stdin; do
+                    [ "$attempt" -lt 8 ] || exit 1
+                    delay=$((attempt * 5))
+                    echo "GHCR login attempt $attempt failed; retrying in ${delay}s." >&2
+                    sleep "$delay"
+                    attempt=$((attempt + 1))
+                  done
                   cd "$DEPLOY_PATH"
                   ./deploy.sh "$IMAGE" compose.yml
 
