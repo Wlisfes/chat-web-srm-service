@@ -19,9 +19,14 @@ export class SimbankUtilsService {
         private readonly configService: ConfigService
     ) {}
 
-    /** MAC 地址统一转为大写冒号分隔格式，例如 aa-bb-cc-dd-ee-ff 转为 AA:BB:CC:DD:EE:FF。 */
+    /** MAC 地址统一转为大写冒号分隔格式，兼容 isMACAddress 支持的 -、:、空格、点分隔写法，例如 aabb.ccdd.eeff 转为 AA:BB:CC:DD:EE:FF。 */
     public fetchNormalizeMac(mac: string): string {
-        return mac.trim().toUpperCase().replace(/-/g, ':')
+        return (
+            mac
+                .replace(/[^0-9A-Fa-f]/g, '')
+                .toUpperCase()
+                .match(/.{2}/g) ?? []
+        ).join(':')
     }
 
     /** 别名去除首尾空格，空字符串按未设置处理，避免空字符串触发唯一索引冲突。 */
@@ -37,7 +42,9 @@ export class SimbankUtilsService {
             if (isNotEmpty(manager)) qb.setLock('pessimistic_write')
             return qb.getOne()
         })
-        if (!simbank) throw new NotFoundException('设备不存在')
+        if (!simbank) {
+            throw new NotFoundException('设备不存在')
+        }
         return simbank
     }
 
@@ -50,9 +57,13 @@ export class SimbankUtilsService {
             types: [type]
         })
         const option = (record[type]?.options ?? []).find(item => Number(item.keyId) === Number(model))
-        if (!option) throw new BadRequestException('设备型号不存在或已禁用')
+        if (!option) {
+            throw new BadRequestException('设备型号不存在或已禁用')
+        }
         const total = Number(option.json?.total)
-        if (!Number.isInteger(total) || total < 1) throw new BadRequestException(`设备型号 ${option.label} 未配置有效的端口数`)
+        if (!Number.isInteger(total) || total < 1) {
+            throw new BadRequestException(`设备型号 ${option.label} 未配置有效的端口数`)
+        }
         return total
     }
 

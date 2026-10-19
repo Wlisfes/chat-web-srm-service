@@ -131,7 +131,7 @@ export class UserUtilsService {
         return repository.save(repository.create({ userKeyId, createBy: uid, modifyBy: uid }))
     }
 
-    /** 生成供应商别名：SSK + 创建人工号 + 4位数字或大写字母随机码；查询碰撞后重试，数据库唯一索引兜底防止并发重复。 */
+    /** 生成供应商别名：RSK + 创建人工号 + 4位数字或大写字母随机码；查询碰撞后重试，数据库唯一索引兜底防止并发重复。 */
     public async generateAlias(manager: EntityManager, number: string): Promise<string> {
         const userNumber = number?.trim()
         if (!isNotEmpty(userNumber) || !/^[A-Za-z0-9]+$/.test(userNumber)) {

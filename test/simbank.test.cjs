@@ -36,6 +36,8 @@ test('设备型号未配置端口数时拒绝', async () => {
 test('MAC 地址统一大写冒号格式，空别名按未设置处理', () => {
     const { utils } = createUtils()
     assert.equal(utils.fetchNormalizeMac(' aa-bb-cc-dd-ee-0f '), 'AA:BB:CC:DD:EE:0F')
+    assert.equal(utils.fetchNormalizeMac('aabb.ccdd.ee0f'), 'AA:BB:CC:DD:EE:0F')
+    assert.equal(utils.fetchNormalizeMac('aa bb cc dd ee 0f'), 'AA:BB:CC:DD:EE:0F')
     assert.equal(utils.fetchNormalizeAlias('  '), null)
     assert.equal(utils.fetchNormalizeAlias(' SB-01 '), 'SB-01')
 })
@@ -83,4 +85,17 @@ test('新增设备入参校验 MAC 格式，在线状态不在入参中', async 
     const errors = await validate(plainToInstance(SimbankDto.CreateSimbankDto, { ...base, mac: 'AABBCC' }))
     assert.ok(errors.some(error => error.property === 'mac'))
     assert.equal(Object.prototype.hasOwnProperty.call(new SimbankDto.UpdateSimbankDto(), 'online'), false)
+})
+test('MAC 地址使用 isMACAddress 校验，兼容多种分隔写法', async () => {
+    const base = { name: 'SIMBANK-01', model: 1024316, userKeyId: 10241000 }
+    for (const mac of ['aa:bb:cc:dd:ee:ff', 'AA-BB-CC-DD-EE-FF', 'aabb.ccdd.eeff']) {
+        assert.equal((await validate(plainToInstance(SimbankDto.CreateSimbankDto, { ...base, mac }))).length, 0, mac)
+    }
+    for (const mac of ['AA:BB:CC:DD:EE', 'GG:BB:CC:DD:EE:FF', 'AA:BB-CC:DD:EE:FF']) {
+        const errors = await validate(plainToInstance(SimbankDto.CreateSimbankDto, { ...base, mac }))
+        assert.ok(
+            errors.some(error => error.property === 'mac'),
+            mac
+        )
+    }
 })

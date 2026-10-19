@@ -2,7 +2,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const { UserUtilsService } = require('../dist/modules/user/user.utils.service')
 const { SRM_USER_ALIAS_RANDOM_CHARACTERS } = require('../dist/modules/user/user.constants')
-const aliasPattern = new RegExp(`^SSK1233[${SRM_USER_ALIAS_RANDOM_CHARACTERS}]{4}$`)
+const aliasPattern = new RegExp(`^RSK1233[${SRM_USER_ALIAS_RANDOM_CHARACTERS}]{4}$`)
 
 function createContext(config) {
     const calls = []
