@@ -3,11 +3,12 @@ import { ConfigService } from '@nestjs/config'
 import { InjectRepository, DataBaseService, EntityManager, Repository } from '@wlisfes/chat-web-base-schema/database'
 import { isNotEmpty } from '@wlisfes/chat-web-base-schema/utils'
 import { UserUtilsService } from '@/modules/user/user.utils.service'
+import * as constants from '@/modules/simbank/simbank.constants'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
 
 /** 设备唯一性校验字段。 */
-type SimbankUniqueInput = Pick<Schema.TbSrmSimbank, 'mac'> & Partial<Pick<Schema.TbSrmSimbank, 'alias' | 'keyId'>>
+type SimbankUniqueInput = Pick<Schema.TbSrmSimbank, 'mac'> & Partial<Pick<Schema.TbSrmSimbank, 'keyId'>>
 
 @Injectable()
 export class SimbankUtilsService {
@@ -21,17 +22,69 @@ export class SimbankUtilsService {
 
     /** MAC 地址统一转为大写冒号分隔格式，兼容 isMACAddress 支持的 -、:、空格、点分隔写法，例如 aabb.ccdd.eeff 转为 AA:BB:CC:DD:EE:FF。 */
     public fetchNormalizeMac(mac: string): string {
-        return (
-            mac
-                .replace(/[^0-9A-Fa-f]/g, '')
-                .toUpperCase()
-                .match(/.{2}/g) ?? []
-        ).join(':')
+        const a = mac.replace(/[^0-9A-Fa-f]/g, '').toUpperCase()
+        return (a.match(/.{2}/g) ?? []).join(':')
     }
 
-    /** 别名去除首尾空格，空字符串按未设置处理，避免空字符串触发唯一索引冲突。 */
-    public fetchNormalizeAlias(alias?: string | null): string | null {
-        return isNotEmpty(alias?.trim()) ? (alias as string).trim() : null
+    /** 获取设备创建命名锁，锁与事务连接绑定，最多等待 5 秒。 */
+    public async acquireCreateLock(manager: EntityManager): Promise<boolean> {
+        const [result] = (await manager.query('SELECT GET_LOCK(?, ?) AS acquired', [constants.SRM_SIMBANK_CREATE_LOCK, 5])) as Array<{
+            acquired: number | string | null
+        }>
+        return Number(result?.acquired) === 1
+    }
+
+    /** 释放设备创建命名锁。 */
+    public async releaseCreateLock(manager: EntityManager): Promise<void> {
+        await manager.query('SELECT RELEASE_LOCK(?) AS released', [constants.SRM_SIMBANK_CREATE_LOCK])
+    }
+
+    /** 生成创建人工号维度自增的设备别名：SSK + 工号 + SMS + 4位分段序号，A001-Z999 后进入 AA01-ZZ99。 */
+    public async generateAlias(manager: EntityManager, number: string): Promise<string> {
+        const userNumber = number?.trim()
+        if (!isNotEmpty(userNumber) || !/^[A-Za-z0-9]+$/.test(userNumber)) {
+            throw new BadRequestException('当前登录账号缺少有效工号，无法生成设备别名')
+        }
+        const prefix = `${constants.SRM_SIMBANK_ALIAS_PREFIX}${userNumber}${constants.SRM_SIMBANK_ALIAS_TYPE}`
+        const list = await this.database.builder(manager.getRepository(Schema.TbSrmSimbank), qb => {
+            return qb
+                .select(['t.keyId', 't.alias'])
+                .where('t.alias LIKE :prefix', { prefix: `${prefix}%` })
+                .getMany()
+        })
+        const maxSequence = list.reduce((max, item) => Math.max(max, this.parseAliasSequence(item.alias, prefix)), 0)
+        return `${prefix}${this.formatAliasSequence(maxSequence + 1)}`
+    }
+
+    /** 把设备别名尾部4位序号转换为连续序号；不符合当前规则的别名返回0。 */
+    public parseAliasSequence(alias: string, prefix: string): number {
+        const code = alias?.startsWith(prefix) ? alias.slice(prefix.length) : ''
+        const single = /^([A-Z])(\d{3})$/.exec(code)
+        if (single && Number(single[2]) > 0) {
+            return (single[1].charCodeAt(0) - 65) * constants.SRM_SIMBANK_ALIAS_SINGLE_MAX + Number(single[2])
+        }
+        const double = /^([A-Z])([A-Z])(\d{2})$/.exec(code)
+        if (double && Number(double[3]) > 0) {
+            const group = (double[1].charCodeAt(0) - 65) * 26 + double[2].charCodeAt(0) - 65
+            return constants.SRM_SIMBANK_ALIAS_SINGLE_CAPACITY + group * constants.SRM_SIMBANK_ALIAS_DOUBLE_MAX + Number(double[3])
+        }
+        return 0
+    }
+
+    /** 把连续序号格式化为4位设备别名序号：A001-Z999，之后 AA01-ZZ99。 */
+    public formatAliasSequence(sequence: number): string {
+        if (!Number.isInteger(sequence) || sequence < 1 || sequence > constants.SRM_SIMBANK_ALIAS_CAPACITY) {
+            throw new ConflictException('当前工号设备别名序号已用完')
+        }
+        if (sequence <= constants.SRM_SIMBANK_ALIAS_SINGLE_CAPACITY) {
+            const index = sequence - 1
+            const letter = String.fromCharCode(65 + Math.floor(index / constants.SRM_SIMBANK_ALIAS_SINGLE_MAX))
+            return `${letter}${String((index % constants.SRM_SIMBANK_ALIAS_SINGLE_MAX) + 1).padStart(3, '0')}`
+        }
+        const index = sequence - constants.SRM_SIMBANK_ALIAS_SINGLE_CAPACITY - 1
+        const group = Math.floor(index / constants.SRM_SIMBANK_ALIAS_DOUBLE_MAX)
+        const letters = String.fromCharCode(65 + Math.floor(group / 26), 65 + (group % 26))
+        return `${letters}${String((index % constants.SRM_SIMBANK_ALIAS_DOUBLE_MAX) + 1).padStart(2, '0')}`
     }
 
     /** 获取必需的设备详情；传入事务管理器时加写锁。 */
@@ -67,22 +120,14 @@ export class SimbankUtilsService {
         return total
     }
 
-    /** 校验 MAC 地址、别名全表唯一；编辑时排除当前设备。 */
+    /** 校验 MAC 地址全表唯一；编辑时排除当前设备。 */
     public async fetchCheckUnique(manager: EntityManager, input: SimbankUniqueInput): Promise<void> {
-        const repository = manager.getRepository(Schema.TbSrmSimbank)
-        const conflicts = await this.database.builder(repository, qb => {
-            qb.select(['t.keyId', 't.mac', 't.alias'])
-            qb.where(isNotEmpty(input.alias) ? '(t.mac = :mac OR t.alias = :alias)' : 't.mac = :mac', {
-                mac: input.mac,
-                alias: input.alias
-            })
+        const exists = await this.database.builder(manager.getRepository(Schema.TbSrmSimbank), qb => {
+            qb.where('t.mac = :mac', { mac: input.mac })
             if (isNotEmpty(input.keyId)) qb.andWhere('t.keyId != :keyId', { keyId: input.keyId })
-            return qb.getMany()
+            return qb.getExists()
         })
-        if (conflicts.some(item => item.mac === input.mac)) throw new ConflictException(`MAC地址 ${input.mac} 已存在`)
-        if (conflicts.some(item => isNotEmpty(input.alias) && item.alias === input.alias)) {
-            throw new ConflictException(`设备别名 ${input.alias} 已存在`)
-        }
+        if (exists) throw new ConflictException(`MAC地址 ${input.mac} 已存在`)
     }
 
     /** 校验归属供应商存在。 */

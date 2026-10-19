@@ -33,50 +33,88 @@ test('设备型号未配置端口数时拒绝', async () => {
     await assert.rejects(() => utils.fetchModelTotal(1024316), /未配置有效的端口数/)
 })
 
-test('MAC 地址统一大写冒号格式，空别名按未设置处理', () => {
+test('MAC 地址统一大写冒号格式', () => {
     const { utils } = createUtils()
     assert.equal(utils.fetchNormalizeMac(' aa-bb-cc-dd-ee-0f '), 'AA:BB:CC:DD:EE:0F')
     assert.equal(utils.fetchNormalizeMac('aabb.ccdd.ee0f'), 'AA:BB:CC:DD:EE:0F')
     assert.equal(utils.fetchNormalizeMac('aa bb cc dd ee 0f'), 'AA:BB:CC:DD:EE:0F')
-    assert.equal(utils.fetchNormalizeAlias('  '), null)
-    assert.equal(utils.fetchNormalizeAlias(' SB-01 '), 'SB-01')
 })
 
-test('新增设备写入端口数、默认启用离线，归属人默认当前账号', async () => {
+test('新增设备在命名锁内生成别名，写入端口数、默认启用离线，提交事务后释放锁', async () => {
     const calls = []
     const manager = {
         create: (_entity, values) => values,
         async save(value) {
+            calls.push(['save'])
             return { keyId: 100201, ...value }
         }
     }
-    const repository = { manager: { transaction: callback => callback(manager) } }
+    const queryRunner = {
+        manager,
+        isTransactionActive: true,
+        async commitTransaction() {
+            calls.push(['commit'])
+            this.isTransactionActive = false
+        },
+        async rollbackTransaction() {
+            calls.push(['rollback'])
+        },
+        async release() {
+            calls.push(['release'])
+        }
+    }
+    const database = { transaction: async () => queryRunner }
     const simbankUtilsService = {
         fetchModelTotal: async () => 64,
         fetchNormalizeMac: mac => mac.toUpperCase(),
-        fetchNormalizeAlias: alias => alias ?? null,
+        acquireCreateLock: async () => calls.push(['lock']) > 0,
+        releaseCreateLock: async () => calls.push(['unlock']),
+        generateAlias: async (_manager, number) => `SSK${number}SMSA001`,
         fetchCheckUser: async keyId => calls.push(['user', keyId]),
         fetchCheckUnique: async (_manager, input) => calls.push(['unique', input])
     }
-    const service = new SimbankService(repository, {}, simbankUtilsService)
-    const result = await service.httpBaseSrmCreateSimbank(principal, {
-        name: ' SIMBANK-01 ',
-        model: 1024317,
-        mac: 'aa:bb:cc:dd:ee:ff',
-        userKeyId: 10241000
-    })
+    const service = new SimbankService({}, database, simbankUtilsService)
+    const result = await service.httpBaseSrmCreateSimbank(
+        { uid: '30001', number: '1233' },
+        { name: ' SIMBANK-01 ', model: 1024317, mac: 'aa:bb:cc:dd:ee:ff', userKeyId: 10241000, alias: 'IGNORED' }
+    )
+    assert.equal(result.alias, 'SSK1233SMSA001')
     assert.equal(result.total, 64)
     assert.equal(result.name, 'SIMBANK-01')
     assert.equal(result.mac, 'AA:BB:CC:DD:EE:FF')
-    assert.equal(result.alias, null)
     assert.equal(result.status, 'enable')
     assert.equal(result.online, 'offline')
     assert.equal(result.ownerUserUid, '30001')
     assert.equal(result.createBy, '30001')
     assert.deepEqual(calls, [
+        ['lock'],
         ['user', 10241000],
-        ['unique', { mac: 'AA:BB:CC:DD:EE:FF', alias: null }]
+        ['unique', { mac: 'AA:BB:CC:DD:EE:FF' }],
+        ['save'],
+        ['commit'],
+        ['unlock'],
+        ['release']
     ])
+})
+
+test('设备别名按工号自增：SSK + 工号 + SMS + A001-Z999，之后 AA01-ZZ99', async () => {
+    const make = aliases => {
+        const database = {
+            builder: async (_repository, callback) => {
+                const qb = { select: () => qb, where: () => qb, getMany: async () => aliases.map((alias, keyId) => ({ keyId, alias })) }
+                return callback(qb)
+            }
+        }
+        return new SimbankUtilsService({}, database, {}, {}, {})
+    }
+    const manager = { getRepository: () => ({}) }
+    assert.equal(await make([]).generateAlias(manager, '1233'), 'SSK1233SMSA001')
+    assert.equal(await make(['SSK1233SMSA001', 'SSK1233SMSA007', 'OTHER']).generateAlias(manager, '1233'), 'SSK1233SMSA008')
+    assert.equal(await make(['SSK1233SMSA999']).generateAlias(manager, '1233'), 'SSK1233SMSB001')
+    assert.equal(await make(['SSK1233SMSZ999']).generateAlias(manager, '1233'), 'SSK1233SMSAA01')
+    assert.equal(make([]).formatAliasSequence(92898), 'ZZ99')
+    await assert.rejects(make([]).generateAlias(manager, ''), /缺少有效工号/)
+    assert.throws(() => make([]).formatAliasSequence(92899), /序号已用完/)
 })
 
 test('新增设备入参校验 MAC 格式，在线状态不在入参中', async () => {

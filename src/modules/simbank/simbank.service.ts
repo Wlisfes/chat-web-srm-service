@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { ConflictException, Injectable } from '@nestjs/common'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { InjectRepository, DataBaseService, Repository } from '@wlisfes/chat-web-base-schema/database'
 import { PageResult, isNotEmpty, fetchResolver, fetchUntiePagination } from '@wlisfes/chat-web-base-schema/utils'
@@ -22,18 +22,25 @@ export class SimbankService {
         }
     }
 
-    /** 新增设备：端口数由设备型号决定，MAC 地址、别名全表唯一，在线状态默认离线。 */
+    /** 新增设备：端口数由设备型号决定，设备别名按创建人工号自动生成，MAC 地址全表唯一，在线状态默认离线。 */
     public async httpBaseSrmCreateSimbank(principal: AuthPrincipal, input: SimbankDto.CreateSimbankDto): Promise<Schema.TbSrmSimbank> {
         const total = await this.simbankUtilsService.fetchModelTotal(input.model)
         const mac = this.simbankUtilsService.fetchNormalizeMac(input.mac)
-        const alias = this.simbankUtilsService.fetchNormalizeAlias(input.alias)
-        return this.repository.manager.transaction(async manager => {
+        // 命名锁在事务提交后才释放，保证下一次生成别名时能读到已提交的序号。
+        const queryRunner = await this.database.transaction()
+        let lockAcquired = false
+        try {
+            lockAcquired = await this.simbankUtilsService.acquireCreateLock(queryRunner.manager)
+            if (!lockAcquired) {
+                throw new ConflictException('设备创建繁忙，请稍后重试')
+            }
+            const manager = queryRunner.manager
             await this.simbankUtilsService.fetchCheckUser(input.userKeyId, manager)
-            await this.simbankUtilsService.fetchCheckUnique(manager, { mac, alias })
-            return await manager.save(
+            await this.simbankUtilsService.fetchCheckUnique(manager, { mac })
+            const simbank = await manager.save(
                 manager.create(Schema.TbSrmSimbank, {
                     name: input.name.trim(),
-                    alias,
+                    alias: await this.simbankUtilsService.generateAlias(manager, principal.number),
                     model: input.model,
                     mac,
                     total,
@@ -45,21 +52,34 @@ export class SimbankService {
                     modifyBy: principal.uid
                 })
             )
-        })
+            await queryRunner.commitTransaction()
+            return simbank
+        } catch (error) {
+            if (queryRunner.isTransactionActive) {
+                await queryRunner.rollbackTransaction()
+            }
+            throw error
+        } finally {
+            try {
+                if (lockAcquired) {
+                    await this.simbankUtilsService.releaseCreateLock(queryRunner.manager)
+                }
+            } finally {
+                await queryRunner.release()
+            }
+        }
     }
 
-    /** 编辑设备：修改型号时按新型号重新计算端口数，在线状态不允许手动修改。 */
+    /** 编辑设备：修改型号时按新型号重新计算端口数；设备别名创建后不可修改，在线状态不允许手动修改。 */
     public async httpBaseSrmUpdateSimbank(principal: AuthPrincipal, input: SimbankDto.UpdateSimbankDto): Promise<Schema.TbSrmSimbank> {
         const total = await this.simbankUtilsService.fetchModelTotal(input.model)
         const mac = this.simbankUtilsService.fetchNormalizeMac(input.mac)
-        const alias = this.simbankUtilsService.fetchNormalizeAlias(input.alias)
         return this.repository.manager.transaction(async manager => {
             const simbank = await this.simbankUtilsService.findRequired(input.keyId, manager)
             await this.simbankUtilsService.fetchCheckUser(input.userKeyId, manager)
-            await this.simbankUtilsService.fetchCheckUnique(manager, { keyId: input.keyId, mac, alias })
+            await this.simbankUtilsService.fetchCheckUnique(manager, { keyId: input.keyId, mac })
             manager.merge(Schema.TbSrmSimbank, simbank, {
                 name: input.name.trim(),
-                alias,
                 model: input.model,
                 mac,
                 total,

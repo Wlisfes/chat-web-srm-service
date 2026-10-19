@@ -4,17 +4,21 @@ import { PageDto } from '@wlisfes/chat-web-base-schema/utils'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 
-/** 新增设备入参：POST /simbank/create；端口数由设备型号枚举 json.total 决定，归属人不传时为当前登录账号，状态不传时默认启用。 */
+/** 新增设备入参：POST /simbank/create；端口数由设备型号枚举 json.total 决定，设备别名由服务端按创建人工号生成，归属人不传时为当前登录账号，状态不传时默认启用。 */
 export class CreateSimbankDto extends IntersectionType(
     PickType(Schema.TbSrmSimbankDto, ['name', 'model', 'mac', 'userKeyId'] as const),
-    PartialType(PickType(Schema.TbSrmSimbankDto, ['alias', 'ownerUserUid', 'status'] as const))
+    PartialType(PickType(Schema.TbSrmSimbankDto, ['ownerUserUid', 'status'] as const))
 ) {}
 
-/** 编辑设备入参：POST /simbank/update；在线状态由设备上报维护，不允许手动修改。 */
-export class UpdateSimbankDto extends IntersectionType(
-    PickType(Schema.TbSrmSimbankDto, ['keyId', 'name', 'model', 'mac', 'userKeyId', 'ownerUserUid'] as const),
-    PartialType(PickType(Schema.TbSrmSimbankDto, ['alias'] as const))
-) {}
+/** 编辑设备入参：POST /simbank/update；设备别名创建后不可修改，在线状态由设备上报维护，不允许手动修改。 */
+export class UpdateSimbankDto extends PickType(Schema.TbSrmSimbankDto, [
+    'keyId',
+    'name',
+    'model',
+    'mac',
+    'userKeyId',
+    'ownerUserUid'
+] as const) {}
 
 /** 更新设备状态入参：POST /simbank/status/update。 */
 export class UpdateSimbankStatusDto extends PickType(Schema.TbSrmSimbankDto, ['keyId', 'status'] as const) {}
