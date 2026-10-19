@@ -77,13 +77,13 @@ export class UserSelectResponseDto extends PickType(Schema.TbSrmUserDto, [
 /** 获取供应商配置入参：GET /user/config/resolve。 */
 export class ResolveUserConfigDto extends PickType(Schema.TbSrmUserConfigDto, ['userKeyId'] as const) {}
 
-/** 供应商配置响应：GET /user/config/resolve；SRM 无短信应用概念，配置表暂无业务配置项。 */
-export class UserConfigResponseDto extends Schema.TbSrmUserConfigDto {}
+/** 供应商配置响应：GET /user/config/resolve，只返回供应商主键和 SIMBANK 设备最大数。 */
+export class UserConfigResponseDto extends PickType(Schema.TbSrmUserConfigDto, ['userKeyId', 'simbankLimit'] as const) {}
 
 /** 供应商详情响应：GET /user/resolve，在列表项基础上附带供应商配置。 */
 export class UserResolveResponseDto extends UserColumnResponseDto {
-    @ApiProperty({ description: '供应商配置，未配置时为空', type: UserConfigResponseDto, required: false })
-    config?: UserConfigResponseDto
+    @ApiProperty({ description: '供应商配置，未配置时返回默认值', type: UserConfigResponseDto })
+    config: UserConfigResponseDto
 }
 
 /** 新增供应商随机表单数据：GET /user/faker，供新增供应商表单初始化使用。 */

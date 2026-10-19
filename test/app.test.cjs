@@ -9,7 +9,11 @@ const { NestFactory } = require('@nestjs/core')
 const { DocumentBuilder, SwaggerModule } = require('@nestjs/swagger')
 const { HttpExceptionFilter } = require('@wlisfes/chat-web-base-schema/filters')
 
-const controllers = [require('../dist/app.controller').AppController, require('../dist/modules/user/user.controller').UserController]
+const controllers = [
+    require('../dist/app.controller').AppController,
+    require('../dist/modules/user/user.controller').UserController,
+    require('../dist/modules/simbank/simbank.controller').SimbankController
+]
 
 function assertTypedSchema(schema, label) {
     assert.ok(schema, `${label} 缺少 Schema`)
@@ -41,7 +45,7 @@ async function createDocument() {
 
 test('OpenAPI 请求和响应包含完整字段类型与示例', async () => {
     const document = await createDocument()
-    for (const schemaName of ['UserPageResponseDto', 'UserContactPageResponseDto']) {
+    for (const schemaName of ['UserPageResponseDto', 'UserContactPageResponseDto', 'SimbankPageResponseDto']) {
         const properties = document.components.schemas?.[schemaName]?.properties ?? {}
         assert.deepEqual(Object.keys(properties).sort(), ['list', 'page', 'size', 'total'])
         assert.equal(properties.pageSize, undefined, `${schemaName} 不能保留 pageSize`)
@@ -53,9 +57,9 @@ test('OpenAPI 请求和响应包含完整字段类型与示例', async () => {
             .map(([method, operation]) => ({ path, method, operation }))
     )
 
-    assert.equal(operations.length, 17)
-    assert.equal(operations.filter(({ operation }) => operation.requestBody).length, 8)
-    assert.equal(operations.flatMap(({ operation }) => operation.parameters ?? []).filter(parameter => parameter.in === 'query').length, 3)
+    assert.equal(operations.length, 24)
+    assert.equal(operations.filter(({ operation }) => operation.requestBody).length, 12)
+    assert.equal(operations.flatMap(({ operation }) => operation.parameters ?? []).filter(parameter => parameter.in === 'query').length, 6)
 
     for (const { path, method, operation } of operations) {
         const operationLabel = `${method.toUpperCase()} ${path}`
