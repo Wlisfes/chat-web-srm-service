@@ -107,16 +107,20 @@ export class UserUtilsService {
         return this.repository.find({ where: { keyId: In(uniqueKeyIds) } })
     }
 
-    /** 查询供应商配置；未配置时返回 null。 */
-    public async findConfig(userKeyId: number, manager?: EntityManager): Promise<Schema.TbSrmUserConfig | null> {
+    /** 查询供应商配置；未配置时返回默认值。传入事务管理器时锁定配置行，供后续校验上限时串行处理。 */
+    public async findConfig(
+        userKeyId: number,
+        manager?: EntityManager
+    ): Promise<Pick<Schema.TbSrmUserConfig, 'userKeyId' | 'simbankLimit'>> {
         const repository = (manager ?? this.configRepository.manager).getRepository(Schema.TbSrmUserConfig)
-        return this.database.builder(repository, qb => {
+        const config = await this.database.builder(repository, qb => {
             qb.where('t.userKeyId = :userKeyId', { userKeyId })
             if (isNotEmpty(manager)) {
                 qb.setLock('pessimistic_write')
             }
             return qb.getOne()
         })
+        return { userKeyId, simbankLimit: config?.simbankLimit ?? Schema.TB_SRM_USER_CONFIG_DEFAULT_SIMBANK_LIMIT }
     }
 
     /** 新增供应商配置；已存在时直接返回，保证一个供应商只有一条配置。 */

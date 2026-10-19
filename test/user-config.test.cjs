@@ -57,14 +57,14 @@ function createContext(config) {
     return { calls, manager, service: new UserUtilsService(repository, configRepository, database) }
 }
 
-test('供应商未配置时返回空配置', async () => {
+test('供应商未配置时返回默认配置', async () => {
     const { service } = createContext(null)
-    assert.equal(await service.findConfig(10241000), null)
+    assert.deepEqual(await service.findConfig(10241000), { userKeyId: 10241000, simbankLimit: 5 })
 })
 
 test('供应商已配置时返回配置，事务内查询加写锁', async () => {
-    const { calls, manager, service } = createContext({ userKeyId: 10241000 })
-    assert.deepEqual(await service.findConfig(10241000, manager), { userKeyId: 10241000 })
+    const { calls, manager, service } = createContext({ keyId: 3, userKeyId: 10241000, simbankLimit: 8, createBy: '1' })
+    assert.deepEqual(await service.findConfig(10241000, manager), { userKeyId: 10241000, simbankLimit: 8 })
     assert.deepEqual(calls, [['lock']])
 })
 
@@ -142,11 +142,11 @@ test('供应商详情返回供应商配置', async () => {
             return { keyId, ownerUserUid: '0' }
         },
         async findConfig(userKeyId) {
-            return { userKeyId }
+            return { userKeyId, simbankLimit: 5 }
         }
     }
     const configService = { get: key => (key === 'gateway.feign.service_token' ? 'service-token' : undefined) }
     const service = new UserService({}, {}, {}, userUtilsService, {}, configService)
     const user = await service.httpBaseSrmUserResolver({ keyId: 10241009 })
-    assert.deepEqual(user.config, { userKeyId: 10241009 })
+    assert.deepEqual(user.config, { userKeyId: 10241009, simbankLimit: 5 })
 })

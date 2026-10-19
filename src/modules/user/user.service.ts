@@ -104,11 +104,11 @@ export class UserService {
                 fields: ['organizations']
             })
         ])
-        return Object.assign(user, { config: config ?? undefined })
+        return Object.assign(user, { config })
     }
 
-    /** 获取供应商配置；供应商不存在时抛出 NotFoundException，未配置时返回空。 */
-    public async httpBaseSrmUserConfigResolver(query: UserDto.ResolveUserConfigDto): Promise<UserDto.UserConfigResponseDto | null> {
+    /** 获取供应商配置；供应商不存在时抛出 NotFoundException，未配置时返回默认值。 */
+    public async httpBaseSrmUserConfigResolver(query: UserDto.ResolveUserConfigDto): Promise<UserDto.UserConfigResponseDto> {
         await this.userUtilsService.findRequired(query.userKeyId)
         return this.userUtilsService.findConfig(query.userKeyId)
     }
