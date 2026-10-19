@@ -10,6 +10,7 @@ import { AppService } from '@/app.service'
 import { DatabaseModule } from '@/database/database.module'
 import { HealthModule } from '@/health/health.module'
 import { UserModule } from '@/modules/user/user.module'
+import { SimbankModule } from '@/modules/simbank/simbank.module'
 import { FeignModule } from '@/feign/feign.module'
 
 @Module({
@@ -25,6 +26,7 @@ import { FeignModule } from '@/feign/feign.module'
         AuthorizationModule,
         HealthModule,
         UserModule,
+        SimbankModule,
         FeignModule
     ],
     controllers: [AppController],
