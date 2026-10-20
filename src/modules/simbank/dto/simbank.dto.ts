@@ -176,3 +176,53 @@ export class ActivateSimbankPortDto extends IntersectionType(
 
 /** 端口主键入参：POST /simbank/port/remove、POST /simbank/port/release。 */
 export class SimbankPortKeyDto extends PickType(Schema.TbSrmSimbankPortDto, ['keyId'] as const) {}
+
+/** 短信历史关键词。 */
+class SimbankMessageKeywordDto {
+    @ApiProperty({
+        description: '关键词：发送号码、接收号码、内容、SIM、ICCID、任务、设备、通道、供应商或状态码',
+        required: false,
+        example: '86138'
+    })
+    @IsOptional()
+    @IsString({ message: '关键词必须是字符串' })
+    @MaxLength(64, { message: '关键词长度不能超过64位' })
+    name?: string
+}
+
+/** 分页查询短信历史入参：POST /simbank/message/column。 */
+export class ListSimbankMessageDto extends IntersectionType(
+    PageDto,
+    PartialType(
+        PickType(Schema.TbSrmSimbankMessageDto, [
+            'simbankKeyId',
+            'userKeyId',
+            'countryKeyId',
+            'source',
+            'type',
+            'encoding',
+            'sendStatus'
+        ] as const)
+    ),
+    SimbankMessageKeywordDto
+) {}
+
+/** 短信历史静态枚举响应：GET /simbank/message/enums。 */
+export class SimbankMessageEnumsResponseDto extends EnumsResponseDto({
+    sourceOptions: { description: '上下行选项', example: Schema.TbSrmSimbankMessageSourceDefinition.options },
+    typeOptions: { description: '短信类型选项', example: Schema.TbSrmSimbankMessageTypeDefinition.options },
+    encodingOptions: { description: '编码方式选项', example: Schema.TbSrmSimbankMessageEncodingDefinition.options },
+    sendStatusOptions: { description: '发送状态选项', example: Schema.TbSrmSimbankMessageSendStatusDefinition.options }
+}) {}
+
+/** 短信历史列表项：POST /simbank/message/column。 */
+export class SimbankMessageColumnResponseDto extends Schema.TbSrmSimbankMessageDto {
+    @ApiProperty({ description: '归属人信息', required: false, type: feign.SkylineUserOptionResponseDto })
+    ownerUserUidOptions?: feign.SkylineUserOptionResponseDto
+}
+
+/** 分页查询短信历史响应：POST /simbank/message/column。 */
+export class SimbankMessagePageResponseDto extends PageResponseDataDto {
+    @ApiProperty({ description: '短信历史列表', type: [SimbankMessageColumnResponseDto] })
+    list: SimbankMessageColumnResponseDto[]
+}

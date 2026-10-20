@@ -475,3 +475,41 @@ test('插卡模拟数据入参只接受 countryKeyId，插卡入参不再包含 
     })
     assert.deepEqual(await validate(insert), [])
 })
+test('短信历史分页按条件过滤，号码关键字去掉开头的 + 号', async () => {
+    const wheres = []
+    const database = {
+        async builder(_repo, callback) {
+            const qb = {
+                andWhere: (sql, params) => {
+                    wheres.push([sql, params])
+                    return qb
+                },
+                orderBy: () => qb,
+                addOrderBy: () => qb,
+                skip: () => qb,
+                take: () => qb,
+                getManyAndCount: async () => [[{ keyId: 1, ownerUserUid: '0' }], 1]
+            }
+            return callback(qb)
+        }
+    }
+    const service = new SimbankService(
+        {},
+        database,
+        {
+            fetchAppendMessageColumnOptions: async list => {
+                list[0].ownerUserUidOptions = { uid: '0', name: '系统' }
+            }
+        },
+        {},
+        {}
+    )
+    const result = await service.httpBaseSrmColumnSimbankMessage({ page: 1, size: 20, source: 'down', name: '+86138' })
+    assert.equal(result.total, 1)
+    assert.equal(result.list[0].ownerUserUidOptions.name, '系统')
+    assert.equal(
+        wheres.some(item => item[0] === 't.source = :source'),
+        true
+    )
+    assert.equal(wheres.find(item => String(item[0]).includes('fromNumber'))[1].numberKeyword, '%86138%')
+})

@@ -157,4 +157,21 @@ export class SimbankController {
     public async httpBaseSrmSimbankPortRelease(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: SimbankDto.SimbankPortKeyDto) {
         return this.simbankService.httpBaseSrmSimbankPortRelease(principal, input)
     }
+
+    @ApiServiceDecorator(Get('message/enums'), {
+        operation: { summary: '获取短信历史静态枚举' },
+        response: { type: SimbankDto.SimbankMessageEnumsResponseDto, description: '短信历史静态枚举' }
+    })
+    public async httpBaseSrmSimbankMessageEnums() {
+        return this.simbankService.httpBaseSrmSimbankMessageEnums()
+    }
+
+    @ApiServiceDecorator(Post('message/column'), {
+        operation: { summary: '分页查询短信历史' },
+        request: { source: 'body', type: SimbankDto.ListSimbankMessageDto },
+        response: { type: SimbankDto.SimbankMessagePageResponseDto, description: '短信历史分页数据（含归属人信息）' }
+    })
+    public async httpBaseSrmColumnSimbankMessage(@Body() input: SimbankDto.ListSimbankMessageDto) {
+        return this.simbankService.httpBaseSrmColumnSimbankMessage(input)
+    }
 }
