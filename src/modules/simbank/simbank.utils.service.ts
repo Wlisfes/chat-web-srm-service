@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { InjectRepository, DataBaseService, EntityManager, Repository } from '@wlisfes/chat-web-base-schema/database'
+import { InjectRepository, DataBaseService, EntityManager, In, Repository } from '@wlisfes/chat-web-base-schema/database'
 import { isNotEmpty } from '@wlisfes/chat-web-base-schema/utils'
+import { Faker, en, zh_CN } from '@faker-js/faker'
 import { UserUtilsService } from '@/modules/user/user.utils.service'
 import * as constants from '@/modules/simbank/simbank.constants'
 import * as Schema from '@wlisfes/chat-web-base-schema'
@@ -12,6 +13,8 @@ type SimbankUniqueInput = Pick<Schema.TbSrmSimbank, 'mac'> & Partial<Pick<Schema
 
 @Injectable()
 export class SimbankUtilsService {
+    private readonly faker = new Faker({ locale: [zh_CN, en] })
+
     constructor(
         @InjectRepository(Schema.TbSrmSimbank) private readonly repository: Repository<Schema.TbSrmSimbank>,
         private readonly database: DataBaseService,
@@ -155,5 +158,55 @@ export class SimbankUtilsService {
             feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, list, ['createBy', 'modifyBy'])
         ])
         return list
+    }
+
+    /** 批量还原端口所属设备、供应商、归属人，以及端口创建人、更新人。 */
+    public async fetchAppendPortColumnOptions<T extends Schema.TbSrmSimbankPort>(list: T[]) {
+        const simbankKeyIds = [...new Set(list.map(item => item.simbankKeyId))]
+        const simbanks = simbankKeyIds.length ? await this.repository.find({ where: { keyId: In(simbankKeyIds) } }) : []
+        await Promise.all([
+            this.fetchAppendColumnOptions(simbanks),
+            feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, list, ['createBy', 'modifyBy'])
+        ])
+        const options = new Map(simbanks.map(item => [item.keyId, item]))
+        for (const item of list) {
+            Object.assign(item, { simbankOptions: options.get(item.simbankKeyId) ?? { keyId: item.simbankKeyId } })
+        }
+        return list
+    }
+    /** 按激活方向国际区号生成插卡数据。SIM 以 +区号开头，ICCID 以 89 加区号开头。 */
+    public createPortCardFaker(code: string): { sim: string; iccid: string; imei: string } {
+        const dial = this.fetchDialCodeRequired(code)
+        const nationalLength = Math.max(6, Math.min(12, 20 - dial.length))
+        const iccidPrefix = `89${dial}`
+        const iccidLength = Math.min(22, Math.max(19, iccidPrefix.length + 6))
+        if (iccidPrefix.length >= iccidLength) {
+            throw new BadRequestException('激活方向国际区号过长，无法生成 ICCID')
+        }
+        return {
+            sim: `+${dial}${this.faker.string.numeric(nationalLength)}`,
+            iccid: `${iccidPrefix}${this.faker.string.numeric(iccidLength - iccidPrefix.length)}`,
+            imei: this.faker.phone.imei().replace(/\D/g, '')
+        }
+    }
+
+    /** 校验卡号属于指定国际区号。 */
+    public fetchCardMatchesDialCode(sim: string, iccid: string, code: string): void {
+        const dial = this.fetchDialCodeRequired(code)
+        if (!sim.startsWith(`+${dial}`)) {
+            throw new BadRequestException(`SIM 卡号码必须属于国际区号 +${dial}`)
+        }
+        if (!iccid.startsWith(`89${dial}`)) {
+            throw new BadRequestException(`ICCID 必须属于国际区号 ${dial}`)
+        }
+    }
+
+    /** 规范化激活方向国际区号。 */
+    public fetchDialCodeRequired(code: string): string {
+        const dial = code.replace(/\D/g, '')
+        if (!/^[0-9]{1,10}$/.test(dial)) {
+            throw new BadRequestException('激活方向国际区号无效')
+        }
+        return dial
     }
 }

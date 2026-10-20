@@ -1,6 +1,8 @@
 import { ApiProperty, IntersectionType, PartialType, PickType } from '@nestjs/swagger'
 import { EnumsResponseDto, PageResponseDataDto } from '@wlisfes/chat-web-base-schema/decorator'
 import { PageDto } from '@wlisfes/chat-web-base-schema/utils'
+import { IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator'
+import { Type } from 'class-transformer'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 
@@ -10,15 +12,8 @@ export class CreateSimbankDto extends IntersectionType(
     PartialType(PickType(Schema.TbSrmSimbankDto, ['ownerUserUid', 'status'] as const))
 ) {}
 
-/** 编辑设备入参：POST /simbank/update；设备别名创建后不可修改，在线状态由设备上报维护，不允许手动修改。 */
-export class UpdateSimbankDto extends PickType(Schema.TbSrmSimbankDto, [
-    'keyId',
-    'name',
-    'model',
-    'mac',
-    'userKeyId',
-    'ownerUserUid'
-] as const) {}
+/** 编辑设备入参：POST /simbank/update；仅支持修改设备名称、设备状态。 */
+export class UpdateSimbankDto extends PickType(Schema.TbSrmSimbankDto, ['keyId', 'name', 'status'] as const) {}
 
 /** 更新设备状态入参：POST /simbank/status/update。 */
 export class UpdateSimbankStatusDto extends PickType(Schema.TbSrmSimbankDto, ['keyId', 'status'] as const) {}
@@ -71,3 +66,122 @@ export class SimbankSelectResponseDto extends PickType(Schema.TbSrmSimbankDto, [
     'status',
     'online'
 ] as const) {}
+
+/** 端口关键词：同时模糊匹配 SIM、ICCID、IMEI，纯数字时同时精确匹配端口编号、端口ID、设备ID。 */
+class SimbankPortKeywordDto {
+    @ApiProperty({
+        description: '关键词：SIM、ICCID、IMEI、端口编号、端口ID、设备名称、别名、MAC或设备ID',
+        required: false,
+        example: '898600'
+    })
+    @IsOptional()
+    @IsString({ message: '关键词必须是字符串' })
+    @MaxLength(64, { message: '关键词长度不能超过64位' })
+    name?: string
+
+    @ApiProperty({ description: '归属供应商：按所属设备的供应商主键过滤', required: false, example: 10241000 })
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt({ message: '归属供应商必须是整数' })
+    @Min(1, { message: '归属供应商必须大于0' })
+    userKeyId?: number
+}
+
+/** 分页查询端口入参：POST /simbank/port/column。 */
+export class ListSimbankPortDto extends IntersectionType(
+    PageDto,
+    PartialType(PickType(Schema.TbSrmSimbankPortDto, ['simbankKeyId', 'countryKeyId'] as const)),
+    PartialType(PickType(Schema.TbSrmSimbankPortDto, ['activateStatus', 'insertStatus', 'status'] as const)),
+    SimbankPortKeywordDto
+) {}
+
+/** 更新端口状态入参：POST /simbank/port/status/update。 */
+export class UpdateSimbankPortStatusDto extends PickType(Schema.TbSrmSimbankPortDto, ['keyId', 'status'] as const) {}
+
+/** 端口静态枚举响应：GET /simbank/port/enums。 */
+export class SimbankPortEnumsResponseDto extends EnumsResponseDto({
+    statusOptions: { description: '端口状态选项', example: Schema.TbSrmSimbankPortStatusDefinition.options },
+    activateStatusOptions: { description: '激活状态选项', example: Schema.TbSrmSimbankPortActivateStatusDefinition.options },
+    insertStatusOptions: { description: '插卡状态选项', example: Schema.TbSrmSimbankPortInsertStatusDefinition.options }
+}) {}
+
+/** 端口所属设备摘要。 */
+export class SimbankPortDeviceOptionResponseDto extends IntersectionType(
+    PickType(Schema.TbSrmSimbankDto, ['keyId', 'name', 'alias', 'model', 'mac'] as const),
+    PickType(Schema.TbSrmSimbankDto, ['total', 'userKeyId', 'ownerUserUid', 'status', 'online'] as const),
+    feign.SkylineUserOptionsResponseDto
+) {
+    @ApiProperty({ description: '归属供应商信息', required: false, type: SimbankUserOptionResponseDto })
+    userKeyIdOptions?: SimbankUserOptionResponseDto
+
+    @ApiProperty({ description: '归属人信息（含所属组织 organizations）', required: false, type: feign.SkylineUserOptionResponseDto })
+    ownerUserUidOptions?: feign.SkylineUserOptionResponseDto
+}
+
+/** 端口列表项响应：POST /simbank/port/column。 */
+export class SimbankPortColumnResponseDto extends IntersectionType(Schema.TbSrmSimbankPortDto, feign.SkylineUserOptionsResponseDto) {
+    @ApiProperty({ description: '所属设备信息', required: false, type: SimbankPortDeviceOptionResponseDto })
+    simbankOptions?: SimbankPortDeviceOptionResponseDto
+}
+
+/** 分页查询端口响应：POST /simbank/port/column。 */
+export class SimbankPortPageResponseDto extends PageResponseDataDto {
+    @ApiProperty({ description: '端口列表', type: [SimbankPortColumnResponseDto] })
+    list: SimbankPortColumnResponseDto[]
+}
+
+/** 插卡模拟卡数据。 */
+export class SimbankPortCardDto {
+    @ApiProperty({ description: 'SIM 卡号码', example: '+8613800138000' })
+    @IsString({ message: 'SIM 卡号码必须是字符串' })
+    @IsNotEmpty({ message: 'SIM 卡号码必填' })
+    @MaxLength(32, { message: 'SIM 卡号码长度不能超过32位' })
+    @Matches(/^\+[0-9]{8,31}$/, { message: 'SIM 卡号码格式错误' })
+    sim: string
+
+    @ApiProperty({ description: 'ICCID：SIM 卡唯一编号', example: '89860012345678901234' })
+    @IsString({ message: 'ICCID 必须是字符串' })
+    @Matches(/^[0-9]{18,22}$/, { message: 'ICCID 格式错误' })
+    iccid: string
+
+    @ApiProperty({ description: 'IMEI：端口模块识别码', example: '860000000000000' })
+    @IsString({ message: 'IMEI 必须是字符串' })
+    @Matches(/^[0-9]{15}$/, { message: 'IMEI 格式错误' })
+    imei: string
+}
+
+/** 插卡模拟数据入参：GET /simbank/port/faker。code 为已激活方向的国际区号。 */
+export class SimbankPortFakerQueryDto {
+    @ApiProperty({ description: '激活方向国际区号', example: '86' })
+    @IsString({ message: '国际区号必须是字符串' })
+    @Matches(/^[0-9]{1,10}$/, { message: '国际区号格式错误' })
+    code: string
+}
+
+/** 插卡模拟数据响应：GET /simbank/port/faker。 */
+export class SimbankPortFakerResponseDto extends SimbankPortCardDto {}
+
+/** 插入 SIM 卡入参：POST /simbank/port/insert。 */
+export class InsertSimbankPortDto extends IntersectionType(
+    PickType(Schema.TbSrmSimbankPortDto, ['keyId'] as const),
+    SimbankPortCardDto,
+    SimbankPortFakerQueryDto
+) {}
+
+/** 激活方向。 */
+class ActivateSimbankPortCountryDto {
+    @ApiProperty({ description: '激活方向：Finance 国家/地区主键', example: 1024 })
+    @Type(() => Number)
+    @IsInt({ message: '激活方向必须是整数' })
+    @Min(1, { message: '激活方向必须大于0' })
+    countryKeyId: number
+}
+
+/** 激活 SIM 卡入参：POST /simbank/port/activate。 */
+export class ActivateSimbankPortDto extends IntersectionType(
+    PickType(Schema.TbSrmSimbankPortDto, ['keyId'] as const),
+    ActivateSimbankPortCountryDto
+) {}
+
+/** 端口主键入参：POST /simbank/port/remove、POST /simbank/port/release。 */
+export class SimbankPortKeyDto extends PickType(Schema.TbSrmSimbankPortDto, ['keyId'] as const) {}

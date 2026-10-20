@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { InjectRepository, DataBaseService, Repository } from '@wlisfes/chat-web-base-schema/database'
 import { PageResult, isNotEmpty, fetchResolver, fetchUntiePagination } from '@wlisfes/chat-web-base-schema/utils'
@@ -11,7 +11,8 @@ export class SimbankService {
     constructor(
         @InjectRepository(Schema.TbSrmSimbank) private readonly repository: Repository<Schema.TbSrmSimbank>,
         private readonly database: DataBaseService,
-        private readonly simbankUtilsService: SimbankUtilsService
+        private readonly simbankUtilsService: SimbankUtilsService,
+        @InjectRepository(Schema.TbSrmSimbankPort) private readonly portRepository: Repository<Schema.TbSrmSimbankPort>
     ) {}
 
     /** 设备静态枚举。 */
@@ -22,7 +23,7 @@ export class SimbankService {
         }
     }
 
-    /** 新增设备：端口数由设备型号决定，设备别名按创建人工号自动生成，MAC 地址全表唯一，在线状态默认离线。 */
+    /** 新增设备：端口数由设备型号决定并同步创建端口，设备别名按创建人工号自动生成，MAC 地址全表唯一，在线状态默认离线。 */
     public async httpBaseSrmCreateSimbank(principal: AuthPrincipal, input: SimbankDto.CreateSimbankDto): Promise<Schema.TbSrmSimbank> {
         const total = await this.simbankUtilsService.fetchModelTotal(input.model)
         const mac = this.simbankUtilsService.fetchNormalizeMac(input.mac)
@@ -52,6 +53,19 @@ export class SimbankService {
                     modifyBy: principal.uid
                 })
             )
+            // 按型号端口数同步初始化端口：未激活、未插卡、启用。
+            await manager.insert(
+                Schema.TbSrmSimbankPort,
+                Array.from({ length: total }, (_, index) => ({
+                    simbankKeyId: simbank.keyId,
+                    port: index + 1,
+                    activateStatus: Schema.TbSrmSimbankPortActivateStatus.INACTIVE,
+                    insertStatus: Schema.TbSrmSimbankPortInsertStatus.REMOVED,
+                    status: Schema.TbSrmSimbankPortStatus.ENABLE,
+                    createBy: principal.uid,
+                    modifyBy: principal.uid
+                }))
+            )
             await queryRunner.commitTransaction()
             return simbank
         } catch (error) {
@@ -70,21 +84,13 @@ export class SimbankService {
         }
     }
 
-    /** 编辑设备：修改型号时按新型号重新计算端口数；设备别名创建后不可修改，在线状态不允许手动修改。 */
+    /** 编辑设备：仅支持修改设备名称、设备状态；型号、MAC、端口数、归属信息创建后不可修改，在线状态由设备上报维护。 */
     public async httpBaseSrmUpdateSimbank(principal: AuthPrincipal, input: SimbankDto.UpdateSimbankDto): Promise<Schema.TbSrmSimbank> {
-        const total = await this.simbankUtilsService.fetchModelTotal(input.model)
-        const mac = this.simbankUtilsService.fetchNormalizeMac(input.mac)
         return this.repository.manager.transaction(async manager => {
             const simbank = await this.simbankUtilsService.findRequired(input.keyId, manager)
-            await this.simbankUtilsService.fetchCheckUser(input.userKeyId, manager)
-            await this.simbankUtilsService.fetchCheckUnique(manager, { keyId: input.keyId, mac })
             manager.merge(Schema.TbSrmSimbank, simbank, {
                 name: input.name.trim(),
-                model: input.model,
-                mac,
-                total,
-                userKeyId: input.userKeyId,
-                ownerUserUid: input.ownerUserUid,
+                status: input.status,
                 modifyBy: principal.uid
             })
             return await manager.save(simbank)
@@ -113,11 +119,21 @@ export class SimbankService {
                     name: `%${input.name?.trim()}%`
                 })
             }
-            if (isNotEmpty(input.model)) qb.andWhere('t.model = :model', { model: input.model })
-            if (isNotEmpty(input.userKeyId)) qb.andWhere('t.userKeyId = :userKeyId', { userKeyId: input.userKeyId })
-            if (isNotEmpty(input.ownerUserUid)) qb.andWhere('t.ownerUserUid = :ownerUserUid', { ownerUserUid: input.ownerUserUid })
-            if (isNotEmpty(input.status)) qb.andWhere('t.status = :status', { status: input.status })
-            if (isNotEmpty(input.online)) qb.andWhere('t.online = :online', { online: input.online })
+            if (isNotEmpty(input.model)) {
+                qb.andWhere('t.model = :model', { model: input.model })
+            }
+            if (isNotEmpty(input.userKeyId)) {
+                qb.andWhere('t.userKeyId = :userKeyId', { userKeyId: input.userKeyId })
+            }
+            if (isNotEmpty(input.ownerUserUid)) {
+                qb.andWhere('t.ownerUserUid = :ownerUserUid', { ownerUserUid: input.ownerUserUid })
+            }
+            if (isNotEmpty(input.status)) {
+                qb.andWhere('t.status = :status', { status: input.status })
+            }
+            if (isNotEmpty(input.online)) {
+                qb.andWhere('t.online = :online', { online: input.online })
+            }
             qb.orderBy('t.createTime', 'DESC')
             qb.addOrderBy('t.keyId', 'DESC')
             qb.skip((page - 1) * size)
@@ -150,5 +166,206 @@ export class SimbankService {
             qb.take(200)
             return await qb.getMany()
         })
+    }
+
+    /** 端口静态枚举。 */
+    public async httpBaseSrmSimbankPortEnums(): Promise<SimbankDto.SimbankPortEnumsResponseDto> {
+        return {
+            statusOptions: Schema.TbSrmSimbankPortStatusDefinition.options,
+            activateStatusOptions: Schema.TbSrmSimbankPortActivateStatusDefinition.options,
+            insertStatusOptions: Schema.TbSrmSimbankPortInsertStatusDefinition.options
+        }
+    }
+
+    /** 更新端口启用、停用状态。端口由设备创建时初始化，不支持单独新增或删除。 */
+    public async httpBaseSrmSimbankPortStatusUpdate(
+        principal: AuthPrincipal,
+        input: SimbankDto.UpdateSimbankPortStatusDto
+    ): Promise<Schema.TbSrmSimbankPort> {
+        return this.portRepository.manager.transaction(async manager => {
+            const port = await manager.findOneBy(Schema.TbSrmSimbankPort, { keyId: input.keyId })
+            if (!port) {
+                throw new NotFoundException('端口不存在')
+            }
+            port.status = input.status
+            port.modifyBy = principal.uid
+            return await manager.save(port)
+        })
+    }
+
+    /** 分页查询端口。关键词匹配卡号和设备信息；归属供应商通过所属设备过滤。 */
+    public async httpBaseSrmColumnSimbankPort(
+        input: SimbankDto.ListSimbankPortDto
+    ): Promise<PageResult<SimbankDto.SimbankPortColumnResponseDto>> {
+        const { page, size } = fetchUntiePagination(input)
+        const keyword = input.name?.trim()
+        const supplierSimbankKeyIds = isNotEmpty(input.userKeyId) ? await this.findSimbankKeyIds({ userKeyId: input.userKeyId }) : undefined
+        if (supplierSimbankKeyIds?.length === 0) {
+            return fetchResolver({ page, size, total: 0, list: [] })
+        }
+        const keywordSimbankKeyIds = keyword ? await this.findSimbankKeyIds({ keyword }) : []
+        return this.database.builder(this.portRepository, async qb => {
+            if (supplierSimbankKeyIds) {
+                qb.andWhere('t.simbankKeyId IN (:...supplierSimbankKeyIds)', { supplierSimbankKeyIds })
+            }
+            if (isNotEmpty(input.simbankKeyId)) {
+                qb.andWhere('t.simbankKeyId = :simbankKeyId', { simbankKeyId: input.simbankKeyId })
+            }
+            if (isNotEmpty(input.activateStatus)) {
+                qb.andWhere('t.activateStatus = :activateStatus', { activateStatus: input.activateStatus })
+            }
+            if (isNotEmpty(input.countryKeyId)) {
+                qb.andWhere('t.countryKeyId = :countryKeyId', { countryKeyId: input.countryKeyId })
+            }
+            if (isNotEmpty(input.insertStatus)) {
+                qb.andWhere('t.insertStatus = :insertStatus', { insertStatus: input.insertStatus })
+            }
+            if (isNotEmpty(input.status)) {
+                qb.andWhere('t.status = :status', { status: input.status })
+            }
+            if (keyword) {
+                const clauses = ['t.sim LIKE :keyword', 't.iccid LIKE :keyword', 't.imei LIKE :keyword']
+                const params: Record<string, string | number | number[]> = { keyword: `%${keyword}%` }
+                if (/^\d+$/.test(keyword)) {
+                    clauses.push('t.port = :number', 't.keyId = :number')
+                    params.number = Number(keyword)
+                }
+                if (keywordSimbankKeyIds.length > 0) {
+                    clauses.push('t.simbankKeyId IN (:...keywordSimbankKeyIds)')
+                    params.keywordSimbankKeyIds = keywordSimbankKeyIds
+                }
+                qb.andWhere(`(${clauses.join(' OR ')})`, params)
+            }
+            qb.orderBy('t.simbankKeyId', 'DESC')
+            qb.addOrderBy('t.port', 'ASC')
+            qb.skip((page - 1) * size)
+            qb.take(size)
+            return await qb.getManyAndCount().then(async ([list, total]) => {
+                await this.simbankUtilsService.fetchAppendPortColumnOptions(list)
+                return fetchResolver({ page, size, total, list })
+            })
+        })
+    }
+
+    /** 按供应商或关键词查找设备主键，供端口列表过滤使用。 */
+    private async findSimbankKeyIds(input: { userKeyId?: number; keyword?: string }): Promise<number[]> {
+        return this.database.builder(this.repository, async qb => {
+            qb.select('t.keyId')
+            if (isNotEmpty(input.userKeyId)) {
+                qb.andWhere('t.userKeyId = :userKeyId', { userKeyId: input.userKeyId })
+            }
+            if (input.keyword) {
+                const clauses = ['t.name LIKE :keyword', 't.alias LIKE :keyword', 't.mac LIKE :keyword']
+                const params: Record<string, string | number> = { keyword: `%${input.keyword}%` }
+                if (/^\d+$/.test(input.keyword)) {
+                    clauses.push('t.keyId = :number')
+                    params.number = Number(input.keyword)
+                }
+                qb.andWhere(`(${clauses.join(' OR ')})`, params)
+            }
+            return await qb.getMany().then(list => list.map(item => item.keyId))
+        })
+    }
+
+    /** 按已激活方向的国际区号生成插卡模拟数据。 */
+    public httpBaseSrmSimbankPortFaker(code: string): SimbankDto.SimbankPortFakerResponseDto {
+        return this.simbankUtilsService.createPortCardFaker(code)
+    }
+
+    /** 插入 SIM 卡：必须已激活，且卡号属于激活方向的国际区号。 */
+    public async httpBaseSrmSimbankPortInsert(
+        principal: AuthPrincipal,
+        input: SimbankDto.InsertSimbankPortDto
+    ): Promise<Schema.TbSrmSimbankPort> {
+        return this.portRepository.manager.transaction(async manager => {
+            const port = await this.findPortRequired(manager, input.keyId)
+            if (port.activateStatus !== Schema.TbSrmSimbankPortActivateStatus.ACTIVE || !port.countryKeyId) {
+                throw new BadRequestException('请先激活并选择激活方向')
+            }
+            if (port.insertStatus === Schema.TbSrmSimbankPortInsertStatus.INSERTED) {
+                throw new ConflictException('端口已插入 SIM 卡')
+            }
+            this.simbankUtilsService.fetchCardMatchesDialCode(input.sim.trim(), input.iccid.trim(), input.code)
+            const iccid = input.iccid.trim()
+            const duplicated = await manager.findOneBy(Schema.TbSrmSimbankPort, { iccid })
+            if (duplicated && duplicated.keyId !== port.keyId) {
+                throw new ConflictException('ICCID 已存在')
+            }
+            port.sim = input.sim.trim()
+            port.iccid = iccid
+            port.imei = input.imei.trim()
+            port.insertStatus = Schema.TbSrmSimbankPortInsertStatus.INSERTED
+            port.modifyBy = principal.uid
+            return await manager.save(port)
+        })
+    }
+
+    /** 先选择激活方向。未插卡也可以激活，后续插卡必须使用该方向的国际区号。 */
+    public async httpBaseSrmSimbankPortActivate(
+        principal: AuthPrincipal,
+        input: SimbankDto.ActivateSimbankPortDto
+    ): Promise<Schema.TbSrmSimbankPort> {
+        return this.portRepository.manager.transaction(async manager => {
+            const port = await this.findPortRequired(manager, input.keyId)
+            if (port.activateStatus === Schema.TbSrmSimbankPortActivateStatus.ACTIVE) {
+                throw new ConflictException('SIM 卡已激活')
+            }
+            port.activateStatus = Schema.TbSrmSimbankPortActivateStatus.ACTIVE
+            port.countryKeyId = input.countryKeyId
+            port.modifyBy = principal.uid
+            return await manager.save(port)
+        })
+    }
+
+    /** 拔卡：清除 SIM、ICCID、IMEI，保留激活方向。 */
+    public async httpBaseSrmSimbankPortRemove(
+        principal: AuthPrincipal,
+        input: SimbankDto.SimbankPortKeyDto
+    ): Promise<Schema.TbSrmSimbankPort> {
+        return this.portRepository.manager.transaction(async manager => {
+            const port = await this.findPortRequired(manager, input.keyId)
+            if (port.insertStatus !== Schema.TbSrmSimbankPortInsertStatus.INSERTED) {
+                throw new BadRequestException('端口未插入 SIM 卡')
+            }
+            this.clearPortCard(port, principal.uid, false)
+            return await manager.save(port)
+        })
+    }
+
+    /** 释放已激活端口：清除卡号、激活状态和激活方向。 */
+    public async httpBaseSrmSimbankPortRelease(
+        principal: AuthPrincipal,
+        input: SimbankDto.SimbankPortKeyDto
+    ): Promise<Schema.TbSrmSimbankPort> {
+        return this.portRepository.manager.transaction(async manager => {
+            const port = await this.findPortRequired(manager, input.keyId)
+            if (port.activateStatus !== Schema.TbSrmSimbankPortActivateStatus.ACTIVE) {
+                throw new BadRequestException('端口未激活')
+            }
+            this.clearPortCard(port, principal.uid, true)
+            return await manager.save(port)
+        })
+    }
+
+    /** 清除端口上的 SIM 卡信息。释放时同时清除激活状态和激活方向。 */
+    private clearPortCard(port: Schema.TbSrmSimbankPort, modifyBy: string, release: boolean): void {
+        port.sim = null
+        port.iccid = null
+        port.imei = null
+        port.insertStatus = Schema.TbSrmSimbankPortInsertStatus.REMOVED
+        if (release) {
+            port.activateStatus = Schema.TbSrmSimbankPortActivateStatus.INACTIVE
+            port.countryKeyId = null
+        }
+        port.modifyBy = modifyBy
+    }
+
+    /** 锁定并校验端口存在。 */
+    private async findPortRequired(manager: { findOneBy: Function }, keyId: number): Promise<Schema.TbSrmSimbankPort> {
+        const port = await manager.findOneBy(Schema.TbSrmSimbankPort, { keyId })
+        if (!port) {
+            throw new NotFoundException('端口不存在')
+        }
+        return port
     }
 }
