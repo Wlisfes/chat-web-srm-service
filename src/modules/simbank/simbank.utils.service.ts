@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { InjectRepository, DataBaseService, EntityManager, Repository } from '@wlisfes/chat-web-base-schema/database'
+import { InjectRepository, DataBaseService, EntityManager, In, Repository } from '@wlisfes/chat-web-base-schema/database'
 import { isNotEmpty } from '@wlisfes/chat-web-base-schema/utils'
+import { Faker, en, zh_CN } from '@faker-js/faker'
 import { UserUtilsService } from '@/modules/user/user.utils.service'
 import * as constants from '@/modules/simbank/simbank.constants'
 import * as Schema from '@wlisfes/chat-web-base-schema'
@@ -12,6 +13,8 @@ type SimbankUniqueInput = Pick<Schema.TbSrmSimbank, 'mac'> & Partial<Pick<Schema
 
 @Injectable()
 export class SimbankUtilsService {
+    private readonly faker = new Faker({ locale: [zh_CN, en] })
+
     constructor(
         @InjectRepository(Schema.TbSrmSimbank) private readonly repository: Repository<Schema.TbSrmSimbank>,
         private readonly database: DataBaseService,
@@ -155,5 +158,28 @@ export class SimbankUtilsService {
             feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, list, ['createBy', 'modifyBy'])
         ])
         return list
+    }
+
+    /** 批量还原端口所属设备、供应商、归属人，以及端口创建人、更新人。 */
+    public async fetchAppendPortColumnOptions<T extends Schema.TbSrmSimbankPort>(list: T[]) {
+        const simbankKeyIds = [...new Set(list.map(item => item.simbankKeyId))]
+        const simbanks = simbankKeyIds.length ? await this.repository.find({ where: { keyId: In(simbankKeyIds) } }) : []
+        await Promise.all([
+            this.fetchAppendColumnOptions(simbanks),
+            feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, list, ['createBy', 'modifyBy'])
+        ])
+        const options = new Map(simbanks.map(item => [item.keyId, item]))
+        for (const item of list) {
+            Object.assign(item, { simbankOptions: options.get(item.simbankKeyId) ?? { keyId: item.simbankKeyId } })
+        }
+        return list
+    }
+    /** 生成插卡模拟数据：SIM 为国内手机号，ICCID 为 20 位数字，IMEI 为 15 位数字。 */
+    public createPortCardFaker(): { sim: string; iccid: string; imei: string } {
+        return {
+            sim: `+86${this.faker.helpers.fromRegExp('1[3-9][0-9]{9}')}`,
+            iccid: this.faker.helpers.fromRegExp('89860[0-4][0-9]{14}'),
+            imei: this.faker.phone.imei().replace(/\D/g, '')
+        }
     }
 }

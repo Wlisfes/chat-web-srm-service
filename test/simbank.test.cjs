@@ -170,3 +170,208 @@ test('MAC 地址使用 isMACAddress 校验，兼容多种分隔写法', async ()
         )
     }
 })
+
+test('端口分页没有匹配供应商设备时直接返回空列表', async () => {
+    const calls = []
+    const database = {
+        async builder(repo, callback) {
+            calls.push(repo)
+            const qb = {
+                select: () => qb,
+                andWhere: () => qb,
+                getMany: async () => []
+            }
+            return callback(qb)
+        }
+    }
+    const service = new SimbankService('device-repo', database, {}, 'port-repo')
+    const result = await service.httpBaseSrmColumnSimbankPort({ page: 1, size: 20, userKeyId: 9 })
+    assert.deepEqual(calls, ['device-repo'])
+    assert.equal(result.total, 0)
+    assert.deepEqual(result.list, [])
+})
+
+test('端口分页关键词同时匹配卡号和设备，并还原所属设备', async () => {
+    const wheres = []
+    const database = {
+        async builder(repo, callback) {
+            const qb = {
+                select: () => qb,
+                andWhere: (sql, params) => {
+                    wheres.push([repo, sql, params])
+                    return qb
+                },
+                orderBy: () => qb,
+                addOrderBy: () => qb,
+                skip: () => qb,
+                take: () => qb,
+                getMany: async () => (repo === 'device' ? [{ keyId: 9 }] : []),
+                getManyAndCount: async () => [[{ keyId: 1, simbankKeyId: 9, port: 2 }], 1]
+            }
+            return callback(qb)
+        }
+    }
+    const service = new SimbankService(
+        'device',
+        database,
+        {
+            fetchAppendPortColumnOptions: async list => {
+                list[0].simbankOptions = { name: 'SIMBANK-01' }
+            }
+        },
+        'port'
+    )
+    const result = await service.httpBaseSrmColumnSimbankPort({ page: 1, size: 10, name: ' 8986 ' })
+    assert.equal(result.total, 1)
+    assert.equal(result.list[0].simbankOptions.name, 'SIMBANK-01')
+    assert.equal(
+        wheres.some(item => item[0] === 'device' && item[1].includes('t.name LIKE :keyword')),
+        true
+    )
+    assert.equal(
+        wheres.some(item => item[0] === 'port' && item[1].includes('t.iccid LIKE :keyword') && item[1].includes('keywordSimbankKeyIds')),
+        true
+    )
+    assert.equal(wheres.find(item => item[0] === 'port')[2].keyword, '%8986%')
+})
+
+test('更新端口状态写入修改人，端口不存在时拒绝', async () => {
+    const saved = []
+    const missing = {
+        manager: { transaction: async callback => callback({ findOneBy: async () => null, save: async value => value }) }
+    }
+    await assert.rejects(
+        () => new SimbankService({}, {}, {}, missing).httpBaseSrmSimbankPortStatusUpdate({ uid: '30001' }, { keyId: 1, status: 'disable' }),
+        /端口不存在/
+    )
+    const port = { keyId: 1, status: 'enable', modifyBy: '1' }
+    const found = {
+        manager: {
+            transaction: async callback =>
+                callback({
+                    findOneBy: async () => port,
+                    save: async value => {
+                        saved.push(value)
+                        return value
+                    }
+                })
+        }
+    }
+    const result = await new SimbankService({}, {}, {}, found).httpBaseSrmSimbankPortStatusUpdate(
+        { uid: '30001' },
+        { keyId: 1, status: 'disable' }
+    )
+    assert.equal(result.status, 'disable')
+    assert.equal(saved[0].modifyBy, '30001')
+})
+
+test('插卡模拟数据符合 SIM、ICCID、IMEI 格式', () => {
+    const { utils } = createUtils()
+    const card = utils.createPortCardFaker()
+    assert.match(card.sim, /^\+861[3-9][0-9]{9}$/)
+    assert.match(card.iccid, /^89860[0-4][0-9]{14}$/)
+    assert.match(card.imei, /^[0-9]{15}$/)
+})
+
+test('插入 SIM 卡写入卡号，已插卡或 ICCID 重复时拒绝', async () => {
+    const inserted = {
+        manager: {
+            transaction: async callback =>
+                callback({
+                    findOneBy: async () => ({ keyId: 1, insertStatus: 'inserted' }),
+                    save: async value => value
+                })
+        }
+    }
+    await assert.rejects(
+        () =>
+            new SimbankService({}, {}, {}, inserted).httpBaseSrmSimbankPortInsert(
+                { uid: '30001' },
+                { keyId: 1, sim: '+8613800138000', iccid: '89860012345678901234', imei: '860000000000000' }
+            ),
+        /端口已插入 SIM 卡/
+    )
+
+    const duplicated = {
+        manager: {
+            transaction: async callback =>
+                callback({
+                    findOneBy: async (_entity, where) =>
+                        where.iccid ? { keyId: 2, iccid: where.iccid } : { keyId: 1, insertStatus: 'removed' },
+                    save: async value => value
+                })
+        }
+    }
+    await assert.rejects(
+        () =>
+            new SimbankService({}, {}, {}, duplicated).httpBaseSrmSimbankPortInsert(
+                { uid: '30001' },
+                { keyId: 1, sim: '+8613800138000', iccid: '89860012345678901234', imei: '860000000000000' }
+            ),
+        /ICCID 已存在/
+    )
+
+    const port = { keyId: 1, insertStatus: 'removed' }
+    const saved = []
+    const available = {
+        manager: {
+            transaction: async callback =>
+                callback({
+                    findOneBy: async (_entity, where) => (where.iccid ? null : port),
+                    save: async value => {
+                        saved.push({ ...value })
+                        return value
+                    }
+                })
+        }
+    }
+    const result = await new SimbankService({}, {}, {}, available).httpBaseSrmSimbankPortInsert(
+        { uid: '30001' },
+        { keyId: 1, sim: ' +8613800138000 ', iccid: ' 89860012345678901234 ', imei: ' 860000000000000 ' }
+    )
+    assert.equal(result.insertStatus, 'inserted')
+    assert.equal(result.sim, '+8613800138000')
+    assert.equal(result.iccid, '89860012345678901234')
+    assert.equal(result.imei, '860000000000000')
+    assert.equal(saved[0].modifyBy, '30001')
+})
+
+test('激活要求已插卡且未激活，并写入激活方向', async () => {
+    const removed = {
+        manager: {
+            transaction: async callback => callback({ findOneBy: async () => ({ keyId: 1, insertStatus: 'removed' }) })
+        }
+    }
+    await assert.rejects(
+        () => new SimbankService({}, {}, {}, removed).httpBaseSrmSimbankPortActivate({ uid: '30001' }, { keyId: 1, countryKeyId: 1024 }),
+        /请先插入 SIM 卡/
+    )
+    const active = {
+        manager: {
+            transaction: async callback =>
+                callback({ findOneBy: async () => ({ keyId: 1, insertStatus: 'inserted', activateStatus: 'active' }) })
+        }
+    }
+    await assert.rejects(
+        () => new SimbankService({}, {}, {}, active).httpBaseSrmSimbankPortActivate({ uid: '30001' }, { keyId: 1, countryKeyId: 1024 }),
+        /SIM 卡已激活/
+    )
+    const port = { keyId: 1, insertStatus: 'inserted', activateStatus: 'inactive' }
+    const result = await new SimbankService(
+        {},
+        {},
+        {},
+        {
+            manager: {
+                transaction: async callback =>
+                    callback({
+                        findOneBy: async () => port,
+                        save: async value => value
+                    })
+            }
+        }
+    ).httpBaseSrmSimbankPortActivate({ uid: '30001' }, { keyId: 1, countryKeyId: 1024 })
+    assert.equal(result.activateStatus, 'active')
+    assert.equal(result.countryKeyId, 1024)
+    assert.equal(result.modifyBy, '30001')
+})

@@ -74,4 +74,68 @@ export class SimbankController {
     public async httpBaseSrmSelectSimbank(@Query() query: SimbankDto.SelectSimbankDto) {
         return this.simbankService.httpBaseSrmSelectSimbank(query)
     }
+
+    @ApiServiceDecorator(Get('port/enums'), {
+        operation: { summary: '获取端口静态枚举' },
+        response: { type: SimbankDto.SimbankPortEnumsResponseDto, description: '端口静态枚举' }
+    })
+    public async httpBaseSrmSimbankPortEnums() {
+        return this.simbankService.httpBaseSrmSimbankPortEnums()
+    }
+
+    @ApiServiceDecorator(Post('port/column'), {
+        operation: { summary: '分页查询端口' },
+        request: { source: 'body', type: SimbankDto.ListSimbankPortDto },
+        response: {
+            type: SimbankDto.SimbankPortPageResponseDto,
+            description: '端口分页数据（含所属设备、归属供应商、归属人、创建人、更新人信息）'
+        }
+    })
+    public async httpBaseSrmColumnSimbankPort(@Body() input: SimbankDto.ListSimbankPortDto) {
+        return this.simbankService.httpBaseSrmColumnSimbankPort(input)
+    }
+
+    @ApiServiceDecorator(Post('port/status/update'), {
+        operation: { summary: '更新端口状态' },
+        request: { source: 'body', type: SimbankDto.UpdateSimbankPortStatusDto },
+        response: { type: Schema.TbSrmSimbankPortDto, description: '更新后的端口信息' }
+    })
+    public async httpBaseSrmSimbankPortStatusUpdate(
+        @CurrentPrincipal() principal: AuthPrincipal,
+        @Body() input: SimbankDto.UpdateSimbankPortStatusDto
+    ) {
+        return this.simbankService.httpBaseSrmSimbankPortStatusUpdate(principal, input)
+    }
+
+    @ApiServiceDecorator(Get('port/faker'), {
+        operation: { summary: '随机生成插卡模拟数据' },
+        response: { type: SimbankDto.SimbankPortFakerResponseDto, description: '插卡表单初始化数据' }
+    })
+    public httpBaseSrmSimbankPortFaker() {
+        return this.simbankService.httpBaseSrmSimbankPortFaker()
+    }
+
+    @ApiServiceDecorator(Post('port/insert'), {
+        operation: { summary: '插入 SIM 卡' },
+        request: { source: 'body', type: SimbankDto.InsertSimbankPortDto },
+        response: { type: Schema.TbSrmSimbankPortDto, description: '插卡后的端口信息' }
+    })
+    public async httpBaseSrmSimbankPortInsert(
+        @CurrentPrincipal() principal: AuthPrincipal,
+        @Body() input: SimbankDto.InsertSimbankPortDto
+    ) {
+        return this.simbankService.httpBaseSrmSimbankPortInsert(principal, input)
+    }
+
+    @ApiServiceDecorator(Post('port/activate'), {
+        operation: { summary: '激活 SIM 卡' },
+        request: { source: 'body', type: SimbankDto.ActivateSimbankPortDto },
+        response: { type: Schema.TbSrmSimbankPortDto, description: '激活后的端口信息' }
+    })
+    public async httpBaseSrmSimbankPortActivate(
+        @CurrentPrincipal() principal: AuthPrincipal,
+        @Body() input: SimbankDto.ActivateSimbankPortDto
+    ) {
+        return this.simbankService.httpBaseSrmSimbankPortActivate(principal, input)
+    }
 }
