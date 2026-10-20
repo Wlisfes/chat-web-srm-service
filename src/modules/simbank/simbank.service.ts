@@ -224,8 +224,12 @@ export class SimbankService {
                 qb.andWhere('t.status = :status', { status: input.status })
             }
             if (keyword) {
-                const clauses = ['t.sim LIKE :keyword', 't.iccid LIKE :keyword', 't.imei LIKE :keyword']
-                const params: Record<string, string | number | number[]> = { keyword: `%${keyword}%` }
+                const clauses = ['t.sim LIKE :simKeyword', 't.iccid LIKE :keyword', 't.imei LIKE :keyword']
+                /**SIM 卡号码入库不带 + 号，关键字去掉开头的 + 号再匹配**/
+                const params: Record<string, string | number | number[]> = {
+                    keyword: `%${keyword}%`,
+                    simKeyword: `%${keyword.replace(/^\+/, '')}%`
+                }
                 if (/^\d+$/.test(keyword)) {
                     clauses.push('t.port = :number', 't.keyId = :number')
                     params.number = Number(keyword)
@@ -285,13 +289,14 @@ export class SimbankService {
             if (port.insertStatus === Schema.TbSrmSimbankPortInsertStatus.INSERTED) {
                 throw new ConflictException('端口已插入 SIM 卡')
             }
-            this.simbankUtilsService.fetchCardMatchesDialCode(input.sim.trim(), input.iccid.trim(), input.code)
+            const sim = this.simbankUtilsService.fetchNormalizeSim(input.sim)
+            this.simbankUtilsService.fetchCardMatchesDialCode(sim, input.iccid.trim(), input.code)
             const iccid = input.iccid.trim()
             const duplicated = await manager.findOneBy(Schema.TbSrmSimbankPort, { iccid })
             if (duplicated && duplicated.keyId !== port.keyId) {
                 throw new ConflictException('ICCID 已存在')
             }
-            port.sim = input.sim.trim()
+            port.sim = sim
             port.iccid = iccid
             port.imei = input.imei.trim()
             port.insertStatus = Schema.TbSrmSimbankPortInsertStatus.INSERTED

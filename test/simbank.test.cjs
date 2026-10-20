@@ -269,9 +269,9 @@ test('插卡模拟数据按激活方向国际区号生成', () => {
     const { utils } = createUtils()
     const china = utils.createPortCardFaker('86')
     const britain = utils.createPortCardFaker('44')
-    assert.match(china.sim, /^\+86[0-9]{6,12}$/)
+    assert.match(china.sim, /^86[0-9]{6,12}$/)
     assert.match(china.iccid, /^8986[0-9]+$/)
-    assert.match(britain.sim, /^\+44[0-9]{6,12}$/)
+    assert.match(britain.sim, /^44[0-9]{6,12}$/)
     assert.match(britain.iccid, /^8944[0-9]+$/)
     assert.match(china.imei, /^[0-9]{15}$/)
     assert.throws(() => utils.fetchCardMatchesDialCode('+8613800138000', '8986001234567890123', '44'), /SIM 卡号码必须属于国际区号 \+44/)
@@ -279,7 +279,7 @@ test('插卡模拟数据按激活方向国际区号生成', () => {
 
 test('插入 SIM 卡必须已激活且卡号属于激活方向', async () => {
     const card = { keyId: 1, code: '86', sim: '+8613800138000', iccid: '89860012345678901234', imei: '860000000000000' }
-    const utils = { fetchCardMatchesDialCode() {} }
+    const utils = { fetchCardMatchesDialCode() {}, fetchNormalizeSim: sim => sim.trim().replace(/^\+/, '') }
     await assert.rejects(
         () =>
             new SimbankService({}, {}, utils, {
@@ -317,7 +317,7 @@ test('插入 SIM 卡必须已激活且卡号属于激活方向', async () => {
         { keyId: 1, code: '86', sim: ' +8613800138000 ', iccid: ' 89860012345678901234 ', imei: ' 860000000000000 ' }
     )
     assert.equal(result.insertStatus, 'inserted')
-    assert.equal(result.sim, '+8613800138000')
+    assert.equal(result.sim, '8613800138000')
     assert.equal(result.modifyBy, '30001')
 })
 

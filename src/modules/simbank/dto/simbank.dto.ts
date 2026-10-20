@@ -132,11 +132,11 @@ export class SimbankPortPageResponseDto extends PageResponseDataDto {
 
 /** 插卡模拟卡数据。 */
 export class SimbankPortCardDto {
-    @ApiProperty({ description: 'SIM 卡号码', example: '+8613800138000' })
+    @ApiProperty({ description: 'SIM 卡号码：国际区号 + 号码，不带 + 号；兼容传入开头的 + 号，入库前会去除', example: '8613800138000' })
     @IsString({ message: 'SIM 卡号码必须是字符串' })
     @IsNotEmpty({ message: 'SIM 卡号码必填' })
     @MaxLength(32, { message: 'SIM 卡号码长度不能超过32位' })
-    @Matches(/^\+[0-9]{8,31}$/, { message: 'SIM 卡号码格式错误' })
+    @Matches(/^\+?[0-9]{8,31}$/, { message: 'SIM 卡号码格式错误' })
     sim: string
 
     @ApiProperty({ description: 'ICCID：SIM 卡唯一编号', example: '89860012345678901234' })

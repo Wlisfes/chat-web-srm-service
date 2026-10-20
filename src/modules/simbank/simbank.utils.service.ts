@@ -174,7 +174,7 @@ export class SimbankUtilsService {
         }
         return list
     }
-    /** 按激活方向国际区号生成插卡数据。SIM 以 +区号开头，ICCID 以 89 加区号开头。 */
+    /** 按激活方向国际区号生成插卡数据。SIM 以区号开头且不带 + 号，ICCID 以 89 加区号开头。 */
     public createPortCardFaker(code: string): { sim: string; iccid: string; imei: string } {
         const dial = this.fetchDialCodeRequired(code)
         const nationalLength = Math.max(6, Math.min(12, 20 - dial.length))
@@ -184,16 +184,21 @@ export class SimbankUtilsService {
             throw new BadRequestException('激活方向国际区号过长，无法生成 ICCID')
         }
         return {
-            sim: `+${dial}${this.faker.string.numeric(nationalLength)}`,
+            sim: `${dial}${this.faker.string.numeric(nationalLength)}`,
             iccid: `${iccidPrefix}${this.faker.string.numeric(iccidLength - iccidPrefix.length)}`,
             imei: this.faker.phone.imei().replace(/\D/g, '')
         }
     }
 
+    /** 规范化 SIM 卡号码：去除首尾空白和开头的 + 号，数据库只存纯数字。 */
+    public fetchNormalizeSim(sim: string): string {
+        return sim.trim().replace(/^\+/, '')
+    }
+
     /** 校验卡号属于指定国际区号。 */
     public fetchCardMatchesDialCode(sim: string, iccid: string, code: string): void {
         const dial = this.fetchDialCodeRequired(code)
-        if (!sim.startsWith(`+${dial}`)) {
+        if (!this.fetchNormalizeSim(sim).startsWith(dial)) {
             throw new BadRequestException(`SIM 卡号码必须属于国际区号 +${dial}`)
         }
         if (!iccid.startsWith(`89${dial}`)) {
