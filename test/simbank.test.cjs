@@ -40,13 +40,18 @@ test('MAC 地址统一大写冒号格式', () => {
     assert.equal(utils.fetchNormalizeMac('aa bb cc dd ee 0f'), 'AA:BB:CC:DD:EE:0F')
 })
 
-test('新增设备在命名锁内生成别名，写入端口数、默认启用离线，提交事务后释放锁', async () => {
+test('新增设备在命名锁内生成别名，写入端口数并同步创建端口，提交事务后释放锁', async () => {
     const calls = []
+    const ports = []
     const manager = {
         create: (_entity, values) => values,
         async save(value) {
             calls.push(['save'])
             return { keyId: 100201, ...value }
+        },
+        async insert(_entity, values) {
+            calls.push(['insert', values.length])
+            ports.push(...values)
         }
     }
     const queryRunner = {
@@ -86,11 +91,22 @@ test('新增设备在命名锁内生成别名，写入端口数、默认启用�
     assert.equal(result.online, 'offline')
     assert.equal(result.ownerUserUid, '30001')
     assert.equal(result.createBy, '30001')
+    assert.deepEqual(ports[0], {
+        simbankKeyId: 100201,
+        port: 1,
+        activateStatus: 'inactive',
+        insertStatus: 'removed',
+        status: 'enable',
+        createBy: '30001',
+        modifyBy: '30001'
+    })
+    assert.equal(ports[63].port, 64)
     assert.deepEqual(calls, [
         ['lock'],
         ['user', 10241000],
         ['unique', { mac: 'AA:BB:CC:DD:EE:FF' }],
         ['save'],
+        ['insert', 64],
         ['commit'],
         ['unlock'],
         ['release']
@@ -123,6 +139,23 @@ test('新增设备入参校验 MAC 格式，在线状态不在入参中', async 
     const errors = await validate(plainToInstance(SimbankDto.CreateSimbankDto, { ...base, mac: 'AABBCC' }))
     assert.ok(errors.some(error => error.property === 'mac'))
     assert.equal(Object.prototype.hasOwnProperty.call(new SimbankDto.UpdateSimbankDto(), 'online'), false)
+})
+
+test('编辑设备只更新设备名称、设备状态', async () => {
+    const simbank = { keyId: 100201, name: 'OLD', model: 1024316, mac: 'AA:BB:CC:DD:EE:FF', total: 64, status: 'enable' }
+    const manager = {
+        merge: (_entity, target, values) => Object.assign(target, values),
+        save: async value => value
+    }
+    const repository = { manager: { transaction: async callback => callback(manager) } }
+    const service = new SimbankService(repository, {}, { findRequired: async () => simbank })
+    const result = await service.httpBaseSrmUpdateSimbank(
+        { uid: '30002' },
+        { keyId: 100201, name: ' NEW ', status: 'disable', model: 1, mac: 'BB:BB:BB:BB:BB:BB', userKeyId: 1 }
+    )
+    assert.deepEqual(result, { ...simbank, name: 'NEW', status: 'disable', modifyBy: '30002' })
+    assert.equal(result.model, 1024316)
+    assert.equal(result.mac, 'AA:BB:CC:DD:EE:FF')
 })
 test('MAC 地址使用 isMACAddress 校验，兼容多种分隔写法', async () => {
     const base = { name: 'SIMBANK-01', model: 1024316, userKeyId: 10241000 }

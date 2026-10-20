@@ -22,7 +22,7 @@ export class SimbankService {
         }
     }
 
-    /** 新增设备：端口数由设备型号决定，设备别名按创建人工号自动生成，MAC 地址全表唯一，在线状态默认离线。 */
+    /** 新增设备：端口数由设备型号决定并同步创建端口，设备别名按创建人工号自动生成，MAC 地址全表唯一，在线状态默认离线。 */
     public async httpBaseSrmCreateSimbank(principal: AuthPrincipal, input: SimbankDto.CreateSimbankDto): Promise<Schema.TbSrmSimbank> {
         const total = await this.simbankUtilsService.fetchModelTotal(input.model)
         const mac = this.simbankUtilsService.fetchNormalizeMac(input.mac)
@@ -52,6 +52,19 @@ export class SimbankService {
                     modifyBy: principal.uid
                 })
             )
+            // 按型号端口数同步初始化端口：未激活、未插卡、启用。
+            await manager.insert(
+                Schema.TbSrmSimbankPort,
+                Array.from({ length: total }, (_, index) => ({
+                    simbankKeyId: simbank.keyId,
+                    port: index + 1,
+                    activateStatus: Schema.TbSrmSimbankPortActivateStatus.INACTIVE,
+                    insertStatus: Schema.TbSrmSimbankPortInsertStatus.REMOVED,
+                    status: Schema.TbSrmSimbankPortStatus.ENABLE,
+                    createBy: principal.uid,
+                    modifyBy: principal.uid
+                }))
+            )
             await queryRunner.commitTransaction()
             return simbank
         } catch (error) {
@@ -70,21 +83,13 @@ export class SimbankService {
         }
     }
 
-    /** 编辑设备：修改型号时按新型号重新计算端口数；设备别名创建后不可修改，在线状态不允许手动修改。 */
+    /** 编辑设备：仅支持修改设备名称、设备状态；型号、MAC、端口数、归属信息创建后不可修改，在线状态由设备上报维护。 */
     public async httpBaseSrmUpdateSimbank(principal: AuthPrincipal, input: SimbankDto.UpdateSimbankDto): Promise<Schema.TbSrmSimbank> {
-        const total = await this.simbankUtilsService.fetchModelTotal(input.model)
-        const mac = this.simbankUtilsService.fetchNormalizeMac(input.mac)
         return this.repository.manager.transaction(async manager => {
             const simbank = await this.simbankUtilsService.findRequired(input.keyId, manager)
-            await this.simbankUtilsService.fetchCheckUser(input.userKeyId, manager)
-            await this.simbankUtilsService.fetchCheckUnique(manager, { keyId: input.keyId, mac })
             manager.merge(Schema.TbSrmSimbank, simbank, {
                 name: input.name.trim(),
-                model: input.model,
-                mac,
-                total,
-                userKeyId: input.userKeyId,
-                ownerUserUid: input.ownerUserUid,
+                status: input.status,
                 modifyBy: principal.uid
             })
             return await manager.save(simbank)
@@ -113,11 +118,21 @@ export class SimbankService {
                     name: `%${input.name?.trim()}%`
                 })
             }
-            if (isNotEmpty(input.model)) qb.andWhere('t.model = :model', { model: input.model })
-            if (isNotEmpty(input.userKeyId)) qb.andWhere('t.userKeyId = :userKeyId', { userKeyId: input.userKeyId })
-            if (isNotEmpty(input.ownerUserUid)) qb.andWhere('t.ownerUserUid = :ownerUserUid', { ownerUserUid: input.ownerUserUid })
-            if (isNotEmpty(input.status)) qb.andWhere('t.status = :status', { status: input.status })
-            if (isNotEmpty(input.online)) qb.andWhere('t.online = :online', { online: input.online })
+            if (isNotEmpty(input.model)) {
+                qb.andWhere('t.model = :model', { model: input.model })
+            }
+            if (isNotEmpty(input.userKeyId)) {
+                qb.andWhere('t.userKeyId = :userKeyId', { userKeyId: input.userKeyId })
+            }
+            if (isNotEmpty(input.ownerUserUid)) {
+                qb.andWhere('t.ownerUserUid = :ownerUserUid', { ownerUserUid: input.ownerUserUid })
+            }
+            if (isNotEmpty(input.status)) {
+                qb.andWhere('t.status = :status', { status: input.status })
+            }
+            if (isNotEmpty(input.online)) {
+                qb.andWhere('t.online = :online', { online: input.online })
+            }
             qb.orderBy('t.createTime', 'DESC')
             qb.addOrderBy('t.keyId', 'DESC')
             qb.skip((page - 1) * size)

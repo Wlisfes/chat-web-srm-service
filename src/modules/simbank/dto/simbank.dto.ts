@@ -10,15 +10,8 @@ export class CreateSimbankDto extends IntersectionType(
     PartialType(PickType(Schema.TbSrmSimbankDto, ['ownerUserUid', 'status'] as const))
 ) {}
 
-/** 编辑设备入参：POST /simbank/update；设备别名创建后不可修改，在线状态由设备上报维护，不允许手动修改。 */
-export class UpdateSimbankDto extends PickType(Schema.TbSrmSimbankDto, [
-    'keyId',
-    'name',
-    'model',
-    'mac',
-    'userKeyId',
-    'ownerUserUid'
-] as const) {}
+/** 编辑设备入参：POST /simbank/update；仅支持修改设备名称、设备状态。 */
+export class UpdateSimbankDto extends PickType(Schema.TbSrmSimbankDto, ['keyId', 'name', 'status'] as const) {}
 
 /** 更新设备状态入参：POST /simbank/status/update。 */
 export class UpdateSimbankStatusDto extends PickType(Schema.TbSrmSimbankDto, ['keyId', 'status'] as const) {}
