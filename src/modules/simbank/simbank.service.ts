@@ -271,12 +271,13 @@ export class SimbankService {
         })
     }
 
-    /** 按已激活方向的国际区号生成插卡模拟数据。 */
-    public httpBaseSrmSimbankPortFaker(code: string): SimbankDto.SimbankPortFakerResponseDto {
-        return this.simbankUtilsService.createPortCardFaker(code)
+    /** 按激活方向（Skyline 国家/地区主键）对应的国际区号生成插卡模拟数据。 */
+    public async httpBaseSrmSimbankPortFaker(query: SimbankDto.SimbankPortFakerQueryDto): Promise<SimbankDto.SimbankPortFakerResponseDto> {
+        const dial = await this.simbankUtilsService.fetchCountryDialCode(query.countryKeyId)
+        return this.simbankUtilsService.createPortCardFaker(dial)
     }
 
-    /** 插入 SIM 卡：必须已激活，且卡号属于激活方向的国际区号。 */
+    /** 插入 SIM 卡：必须已激活，且卡号属于端口已保存激活方向的国际区号。 */
     public async httpBaseSrmSimbankPortInsert(
         principal: AuthPrincipal,
         input: SimbankDto.InsertSimbankPortDto
@@ -290,7 +291,8 @@ export class SimbankService {
                 throw new ConflictException('端口已插入 SIM 卡')
             }
             const sim = this.simbankUtilsService.fetchNormalizeSim(input.sim)
-            this.simbankUtilsService.fetchCardMatchesDialCode(sim, input.iccid.trim(), input.code)
+            const dial = await this.simbankUtilsService.fetchCountryDialCode(port.countryKeyId)
+            this.simbankUtilsService.fetchCardMatchesDialCode(sim, input.iccid.trim(), dial)
             const iccid = input.iccid.trim()
             const duplicated = await manager.findOneBy(Schema.TbSrmSimbankPort, { iccid })
             if (duplicated && duplicated.keyId !== port.keyId) {

@@ -16,6 +16,7 @@ node dist/cli/apply-schema.js
 ## API
 
 - `/user/**`：供应商、供应商配置与联系人
+- `/simbank/**`：SIMBANK 设备与端口；端口激活方向 `countryKeyId` 为 Skyline 国家/地区主键，插卡模拟数据 `GET /simbank/port/faker?countryKeyId=` 与插卡校验均通过 Skyline Feign 查询国际区号，SIM 卡号码入库不带 + 号
 
 供应商没有品牌、客户类型、认证状态字段，也没有短信应用概念。注册来源使用 Skyline 枚举 `CHUNK_SRM_USER_SOURCE`，联系方式类型使用 `CHUNK_SKYLINE_CONTACT_TYPE`。内部服务通过 SRM Feign（`/feign/srm`）查询供应商详情、批量详情和分页列表。
 

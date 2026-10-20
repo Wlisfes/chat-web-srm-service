@@ -108,12 +108,12 @@ export class SimbankController {
     }
 
     @ApiServiceDecorator(Get('port/faker'), {
-        operation: { summary: '按激活方向国际区号随机生成插卡模拟数据' },
+        operation: { summary: '按激活方向随机生成插卡模拟数据' },
         request: { source: 'query', type: SimbankDto.SimbankPortFakerQueryDto },
         response: { type: SimbankDto.SimbankPortFakerResponseDto, description: '插卡表单初始化数据' }
     })
     public httpBaseSrmSimbankPortFaker(@Query() query: SimbankDto.SimbankPortFakerQueryDto) {
-        return this.simbankService.httpBaseSrmSimbankPortFaker(query.code)
+        return this.simbankService.httpBaseSrmSimbankPortFaker(query)
     }
 
     @ApiServiceDecorator(Post('port/insert'), {

@@ -150,32 +150,23 @@ export class SimbankPortCardDto {
     imei: string
 }
 
-/** 插卡模拟数据入参：GET /simbank/port/faker。code 为已激活方向的国际区号。 */
-export class SimbankPortFakerQueryDto {
-    @ApiProperty({ description: '激活方向国际区号', example: '86' })
-    @IsString({ message: '国际区号必须是字符串' })
-    @Matches(/^[0-9]{1,10}$/, { message: '国际区号格式错误' })
-    code: string
-}
-
-/** 插卡模拟数据响应：GET /simbank/port/faker。 */
-export class SimbankPortFakerResponseDto extends SimbankPortCardDto {}
-
-/** 插入 SIM 卡入参：POST /simbank/port/insert。 */
-export class InsertSimbankPortDto extends IntersectionType(
-    PickType(Schema.TbSrmSimbankPortDto, ['keyId'] as const),
-    SimbankPortCardDto,
-    SimbankPortFakerQueryDto
-) {}
-
 /** 激活方向。 */
-class ActivateSimbankPortCountryDto {
-    @ApiProperty({ description: '激活方向：Finance 国家/地区主键', example: 1024 })
+export class ActivateSimbankPortCountryDto {
+    @ApiProperty({ description: '激活方向：Skyline 国家/地区主键', example: 1024 })
     @Type(() => Number)
     @IsInt({ message: '激活方向必须是整数' })
     @Min(1, { message: '激活方向必须大于0' })
     countryKeyId: number
 }
+
+/** 插卡模拟数据入参：GET /simbank/port/faker。countryKeyId 为激活方向（Skyline 国家/地区主键），服务端按其国际区号生成卡号。 */
+export class SimbankPortFakerQueryDto extends ActivateSimbankPortCountryDto {}
+
+/** 插卡模拟数据响应：GET /simbank/port/faker。 */
+export class SimbankPortFakerResponseDto extends SimbankPortCardDto {}
+
+/** 插入 SIM 卡入参：POST /simbank/port/insert。 */
+export class InsertSimbankPortDto extends IntersectionType(PickType(Schema.TbSrmSimbankPortDto, ['keyId'] as const), SimbankPortCardDto) {}
 
 /** 激活 SIM 卡入参：POST /simbank/port/activate。 */
 export class ActivateSimbankPortDto extends IntersectionType(

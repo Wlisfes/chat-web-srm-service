@@ -278,8 +278,17 @@ test('插卡模拟数据按激活方向国际区号生成', () => {
 })
 
 test('插入 SIM 卡必须已激活且卡号属于激活方向', async () => {
-    const card = { keyId: 1, code: '86', sim: '+8613800138000', iccid: '89860012345678901234', imei: '860000000000000' }
-    const utils = { fetchCardMatchesDialCode() {}, fetchNormalizeSim: sim => sim.trim().replace(/^\+/, '') }
+    const card = { keyId: 1, sim: '+8613800138000', iccid: '89860012345678901234', imei: '860000000000000' }
+    const dials = []
+    const utils = {
+        fetchCardMatchesDialCode(_sim, _iccid, dial) {
+            dials.push(dial)
+        },
+        fetchNormalizeSim: sim => sim.trim().replace(/^\+/, ''),
+        async fetchCountryDialCode(countryKeyId) {
+            return countryKeyId === 86 ? '86' : '44'
+        }
+    }
     await assert.rejects(
         () =>
             new SimbankService({}, {}, utils, {
@@ -314,10 +323,11 @@ test('插入 SIM 卡必须已激活且卡号属于激活方向', async () => {
         }
     }).httpBaseSrmSimbankPortInsert(
         { uid: '30001' },
-        { keyId: 1, code: '86', sim: ' +8613800138000 ', iccid: ' 89860012345678901234 ', imei: ' 860000000000000 ' }
+        { keyId: 1, sim: ' +8613800138000 ', iccid: ' 89860012345678901234 ', imei: ' 860000000000000 ' }
     )
     assert.equal(result.insertStatus, 'inserted')
     assert.equal(result.sim, '8613800138000')
+    assert.deepEqual(dials, ['86'])
     assert.equal(result.modifyBy, '30001')
 })
 
@@ -433,4 +443,35 @@ test('释放已激活端口时清除卡号、激活状态和激活方向', async
     assert.equal(result.iccid, null)
     assert.equal(result.imei, null)
     assert.equal(result.modifyBy, '30001')
+})
+
+test('插卡模拟数据按激活方向 countryKeyId 查询 Skyline 国际区号', async () => {
+    const calls = []
+    const skylineFeignClient = {
+        async httpBaseSkylineCountryResolver(authorization, input) {
+            calls.push({ authorization, input })
+            return { keyId: input.keyId, code: '86', mcc: '460', cnName: '中国', enName: 'China', status: 'enable' }
+        }
+    }
+    const utils = new SimbankUtilsService({}, {}, {}, skylineFeignClient, { get: () => 'service-token' })
+    assert.equal(await utils.fetchCountryDialCode(1077), '86')
+    assert.deepEqual(calls[0], { authorization: 'Bearer service-token', input: { keyId: 1077 } })
+    const result = await new SimbankService({}, {}, utils, {}).httpBaseSrmSimbankPortFaker({ countryKeyId: 1077 })
+    assert.match(result.sim, /^86[0-9]{6,12}$/)
+    assert.match(result.iccid, /^8986[0-9]+$/)
+})
+
+test('插卡模拟数据入参只接受 countryKeyId，插卡入参不再包含 code', async () => {
+    const valid = plainToInstance(SimbankDto.SimbankPortFakerQueryDto, { countryKeyId: '1077' })
+    assert.deepEqual(await validate(valid), [])
+    assert.equal(valid.countryKeyId, 1077)
+    assert.equal(valid.code, undefined)
+    assert.equal((await validate(plainToInstance(SimbankDto.SimbankPortFakerQueryDto, {}))).length, 1)
+    const insert = plainToInstance(SimbankDto.InsertSimbankPortDto, {
+        keyId: 1,
+        sim: '8613800138000',
+        iccid: '89860012345678901234',
+        imei: '860000000000000'
+    })
+    assert.deepEqual(await validate(insert), [])
 })

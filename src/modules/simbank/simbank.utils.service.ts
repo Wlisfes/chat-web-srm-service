@@ -206,6 +206,13 @@ export class SimbankUtilsService {
         }
     }
 
+    /** 按激活方向（Skyline 国家/地区主键）查询国际区号；国家/地区不存在时 Skyline 返回 404。 */
+    public async fetchCountryDialCode(countryKeyId: number): Promise<string> {
+        const authorization = feign.resolveFeignServiceAuthorization(this.configService)
+        const country = await this.skylineFeignClient.httpBaseSkylineCountryResolver(authorization, { keyId: countryKeyId })
+        return this.fetchDialCodeRequired(country.code)
+    }
+
     /** 规范化激活方向国际区号。 */
     public fetchDialCodeRequired(code: string): string {
         const dial = code.replace(/\D/g, '')
