@@ -174,12 +174,39 @@ export class SimbankUtilsService {
         }
         return list
     }
-    /** 生成插卡模拟数据：SIM 为国内手机号，ICCID 为 20 位数字，IMEI 为 15 位数字。 */
-    public createPortCardFaker(): { sim: string; iccid: string; imei: string } {
+    /** 按激活方向国际区号生成插卡数据。SIM 以 +区号开头，ICCID 以 89 加区号开头。 */
+    public createPortCardFaker(code: string): { sim: string; iccid: string; imei: string } {
+        const dial = this.fetchDialCodeRequired(code)
+        const nationalLength = Math.max(6, Math.min(12, 20 - dial.length))
+        const iccidPrefix = `89${dial}`
+        const iccidLength = Math.min(22, Math.max(19, iccidPrefix.length + 6))
+        if (iccidPrefix.length >= iccidLength) {
+            throw new BadRequestException('激活方向国际区号过长，无法生成 ICCID')
+        }
         return {
-            sim: `+86${this.faker.helpers.fromRegExp('1[3-9][0-9]{9}')}`,
-            iccid: this.faker.helpers.fromRegExp('89860[0-4][0-9]{14}'),
+            sim: `+${dial}${this.faker.string.numeric(nationalLength)}`,
+            iccid: `${iccidPrefix}${this.faker.string.numeric(iccidLength - iccidPrefix.length)}`,
             imei: this.faker.phone.imei().replace(/\D/g, '')
         }
+    }
+
+    /** 校验卡号属于指定国际区号。 */
+    public fetchCardMatchesDialCode(sim: string, iccid: string, code: string): void {
+        const dial = this.fetchDialCodeRequired(code)
+        if (!sim.startsWith(`+${dial}`)) {
+            throw new BadRequestException(`SIM 卡号码必须属于国际区号 +${dial}`)
+        }
+        if (!iccid.startsWith(`89${dial}`)) {
+            throw new BadRequestException(`ICCID 必须属于国际区号 ${dial}`)
+        }
+    }
+
+    /** 规范化激活方向国际区号。 */
+    public fetchDialCodeRequired(code: string): string {
+        const dial = code.replace(/\D/g, '')
+        if (!/^[0-9]{1,10}$/.test(dial)) {
+            throw new BadRequestException('激活方向国际区号无效')
+        }
+        return dial
     }
 }

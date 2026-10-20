@@ -267,21 +267,25 @@ export class SimbankService {
         })
     }
 
-    /** 生成插卡模拟数据，供插卡表单初始化后提交。 */
-    public httpBaseSrmSimbankPortFaker(): SimbankDto.SimbankPortFakerResponseDto {
-        return this.simbankUtilsService.createPortCardFaker()
+    /** 按已激活方向的国际区号生成插卡模拟数据。 */
+    public httpBaseSrmSimbankPortFaker(code: string): SimbankDto.SimbankPortFakerResponseDto {
+        return this.simbankUtilsService.createPortCardFaker(code)
     }
 
-    /** 插入 SIM 卡：写入卡号并标记已插卡。已插卡或 ICCID 重复时拒绝。 */
+    /** 插入 SIM 卡：必须已激活，且卡号属于激活方向的国际区号。 */
     public async httpBaseSrmSimbankPortInsert(
         principal: AuthPrincipal,
         input: SimbankDto.InsertSimbankPortDto
     ): Promise<Schema.TbSrmSimbankPort> {
         return this.portRepository.manager.transaction(async manager => {
             const port = await this.findPortRequired(manager, input.keyId)
+            if (port.activateStatus !== Schema.TbSrmSimbankPortActivateStatus.ACTIVE || !port.countryKeyId) {
+                throw new BadRequestException('请先激活并选择激活方向')
+            }
             if (port.insertStatus === Schema.TbSrmSimbankPortInsertStatus.INSERTED) {
                 throw new ConflictException('端口已插入 SIM 卡')
             }
+            this.simbankUtilsService.fetchCardMatchesDialCode(input.sim.trim(), input.iccid.trim(), input.code)
             const iccid = input.iccid.trim()
             const duplicated = await manager.findOneBy(Schema.TbSrmSimbankPort, { iccid })
             if (duplicated && duplicated.keyId !== port.keyId) {
@@ -296,16 +300,13 @@ export class SimbankService {
         })
     }
 
-    /** 激活已插入的 SIM 卡，并记录激活方向。 */
+    /** 先选择激活方向。未插卡也可以激活，后续插卡必须使用该方向的国际区号。 */
     public async httpBaseSrmSimbankPortActivate(
         principal: AuthPrincipal,
         input: SimbankDto.ActivateSimbankPortDto
     ): Promise<Schema.TbSrmSimbankPort> {
         return this.portRepository.manager.transaction(async manager => {
             const port = await this.findPortRequired(manager, input.keyId)
-            if (port.insertStatus !== Schema.TbSrmSimbankPortInsertStatus.INSERTED) {
-                throw new BadRequestException('请先插入 SIM 卡')
-            }
             if (port.activateStatus === Schema.TbSrmSimbankPortActivateStatus.ACTIVE) {
                 throw new ConflictException('SIM 卡已激活')
             }
@@ -314,6 +315,49 @@ export class SimbankService {
             port.modifyBy = principal.uid
             return await manager.save(port)
         })
+    }
+
+    /** 拔卡：清除 SIM、ICCID、IMEI，保留激活方向。 */
+    public async httpBaseSrmSimbankPortRemove(
+        principal: AuthPrincipal,
+        input: SimbankDto.SimbankPortKeyDto
+    ): Promise<Schema.TbSrmSimbankPort> {
+        return this.portRepository.manager.transaction(async manager => {
+            const port = await this.findPortRequired(manager, input.keyId)
+            if (port.insertStatus !== Schema.TbSrmSimbankPortInsertStatus.INSERTED) {
+                throw new BadRequestException('端口未插入 SIM 卡')
+            }
+            this.clearPortCard(port, principal.uid, false)
+            return await manager.save(port)
+        })
+    }
+
+    /** 释放已激活端口：清除卡号、激活状态和激活方向。 */
+    public async httpBaseSrmSimbankPortRelease(
+        principal: AuthPrincipal,
+        input: SimbankDto.SimbankPortKeyDto
+    ): Promise<Schema.TbSrmSimbankPort> {
+        return this.portRepository.manager.transaction(async manager => {
+            const port = await this.findPortRequired(manager, input.keyId)
+            if (port.activateStatus !== Schema.TbSrmSimbankPortActivateStatus.ACTIVE) {
+                throw new BadRequestException('端口未激活')
+            }
+            this.clearPortCard(port, principal.uid, true)
+            return await manager.save(port)
+        })
+    }
+
+    /** 清除端口上的 SIM 卡信息。释放时同时清除激活状态和激活方向。 */
+    private clearPortCard(port: Schema.TbSrmSimbankPort, modifyBy: string, release: boolean): void {
+        port.sim = null
+        port.iccid = null
+        port.imei = null
+        port.insertStatus = Schema.TbSrmSimbankPortInsertStatus.REMOVED
+        if (release) {
+            port.activateStatus = Schema.TbSrmSimbankPortActivateStatus.INACTIVE
+            port.countryKeyId = null
+        }
+        port.modifyBy = modifyBy
     }
 
     /** 锁定并校验端口存在。 */

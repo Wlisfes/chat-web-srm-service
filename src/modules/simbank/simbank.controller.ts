@@ -108,11 +108,12 @@ export class SimbankController {
     }
 
     @ApiServiceDecorator(Get('port/faker'), {
-        operation: { summary: '随机生成插卡模拟数据' },
+        operation: { summary: '按激活方向国际区号随机生成插卡模拟数据' },
+        request: { source: 'query', type: SimbankDto.SimbankPortFakerQueryDto },
         response: { type: SimbankDto.SimbankPortFakerResponseDto, description: '插卡表单初始化数据' }
     })
-    public httpBaseSrmSimbankPortFaker() {
-        return this.simbankService.httpBaseSrmSimbankPortFaker()
+    public httpBaseSrmSimbankPortFaker(@Query() query: SimbankDto.SimbankPortFakerQueryDto) {
+        return this.simbankService.httpBaseSrmSimbankPortFaker(query.code)
     }
 
     @ApiServiceDecorator(Post('port/insert'), {
@@ -137,5 +138,23 @@ export class SimbankController {
         @Body() input: SimbankDto.ActivateSimbankPortDto
     ) {
         return this.simbankService.httpBaseSrmSimbankPortActivate(principal, input)
+    }
+
+    @ApiServiceDecorator(Post('port/remove'), {
+        operation: { summary: '拔出 SIM 卡' },
+        request: { source: 'body', type: SimbankDto.SimbankPortKeyDto },
+        response: { type: Schema.TbSrmSimbankPortDto, description: '拔卡后的端口信息' }
+    })
+    public async httpBaseSrmSimbankPortRemove(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: SimbankDto.SimbankPortKeyDto) {
+        return this.simbankService.httpBaseSrmSimbankPortRemove(principal, input)
+    }
+
+    @ApiServiceDecorator(Post('port/release'), {
+        operation: { summary: '释放已激活端口' },
+        request: { source: 'body', type: SimbankDto.SimbankPortKeyDto },
+        response: { type: Schema.TbSrmSimbankPortDto, description: '释放后的端口信息' }
+    })
+    public async httpBaseSrmSimbankPortRelease(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: SimbankDto.SimbankPortKeyDto) {
+        return this.simbankService.httpBaseSrmSimbankPortRelease(principal, input)
     }
 }

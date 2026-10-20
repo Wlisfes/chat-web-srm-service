@@ -136,7 +136,7 @@ export class SimbankPortCardDto {
     @IsString({ message: 'SIM 卡号码必须是字符串' })
     @IsNotEmpty({ message: 'SIM 卡号码必填' })
     @MaxLength(32, { message: 'SIM 卡号码长度不能超过32位' })
-    @Matches(/^\+?[0-9]{8,20}$/, { message: 'SIM 卡号码格式错误' })
+    @Matches(/^\+[0-9]{8,31}$/, { message: 'SIM 卡号码格式错误' })
     sim: string
 
     @ApiProperty({ description: 'ICCID：SIM 卡唯一编号', example: '89860012345678901234' })
@@ -150,11 +150,23 @@ export class SimbankPortCardDto {
     imei: string
 }
 
+/** 插卡模拟数据入参：GET /simbank/port/faker。code 为已激活方向的国际区号。 */
+export class SimbankPortFakerQueryDto {
+    @ApiProperty({ description: '激活方向国际区号', example: '86' })
+    @IsString({ message: '国际区号必须是字符串' })
+    @Matches(/^[0-9]{1,10}$/, { message: '国际区号格式错误' })
+    code: string
+}
+
 /** 插卡模拟数据响应：GET /simbank/port/faker。 */
 export class SimbankPortFakerResponseDto extends SimbankPortCardDto {}
 
 /** 插入 SIM 卡入参：POST /simbank/port/insert。 */
-export class InsertSimbankPortDto extends IntersectionType(PickType(Schema.TbSrmSimbankPortDto, ['keyId'] as const), SimbankPortCardDto) {}
+export class InsertSimbankPortDto extends IntersectionType(
+    PickType(Schema.TbSrmSimbankPortDto, ['keyId'] as const),
+    SimbankPortCardDto,
+    SimbankPortFakerQueryDto
+) {}
 
 /** 激活方向。 */
 class ActivateSimbankPortCountryDto {
@@ -170,3 +182,6 @@ export class ActivateSimbankPortDto extends IntersectionType(
     PickType(Schema.TbSrmSimbankPortDto, ['keyId'] as const),
     ActivateSimbankPortCountryDto
 ) {}
+
+/** 端口主键入参：POST /simbank/port/remove、POST /simbank/port/release。 */
+export class SimbankPortKeyDto extends PickType(Schema.TbSrmSimbankPortDto, ['keyId'] as const) {}

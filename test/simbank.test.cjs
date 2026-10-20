@@ -265,113 +265,172 @@ test('更新端口状态写入修改人，端口不存在时拒绝', async () =>
     assert.equal(saved[0].modifyBy, '30001')
 })
 
-test('插卡模拟数据符合 SIM、ICCID、IMEI 格式', () => {
+test('插卡模拟数据按激活方向国际区号生成', () => {
     const { utils } = createUtils()
-    const card = utils.createPortCardFaker()
-    assert.match(card.sim, /^\+861[3-9][0-9]{9}$/)
-    assert.match(card.iccid, /^89860[0-4][0-9]{14}$/)
-    assert.match(card.imei, /^[0-9]{15}$/)
+    const china = utils.createPortCardFaker('86')
+    const britain = utils.createPortCardFaker('44')
+    assert.match(china.sim, /^\+86[0-9]{6,12}$/)
+    assert.match(china.iccid, /^8986[0-9]+$/)
+    assert.match(britain.sim, /^\+44[0-9]{6,12}$/)
+    assert.match(britain.iccid, /^8944[0-9]+$/)
+    assert.match(china.imei, /^[0-9]{15}$/)
+    assert.throws(() => utils.fetchCardMatchesDialCode('+8613800138000', '8986001234567890123', '44'), /SIM 卡号码必须属于国际区号 \+44/)
 })
 
-test('插入 SIM 卡写入卡号，已插卡或 ICCID 重复时拒绝', async () => {
-    const inserted = {
-        manager: {
-            transaction: async callback =>
-                callback({
-                    findOneBy: async () => ({ keyId: 1, insertStatus: 'inserted' }),
-                    save: async value => value
-                })
-        }
-    }
+test('插入 SIM 卡必须已激活且卡号属于激活方向', async () => {
+    const card = { keyId: 1, code: '86', sim: '+8613800138000', iccid: '89860012345678901234', imei: '860000000000000' }
+    const utils = { fetchCardMatchesDialCode() {} }
     await assert.rejects(
         () =>
-            new SimbankService({}, {}, {}, inserted).httpBaseSrmSimbankPortInsert(
-                { uid: '30001' },
-                { keyId: 1, sim: '+8613800138000', iccid: '89860012345678901234', imei: '860000000000000' }
-            ),
+            new SimbankService({}, {}, utils, {
+                manager: {
+                    transaction: async callback =>
+                        callback({ findOneBy: async () => ({ keyId: 1, activateStatus: 'inactive' }), save: async value => value })
+                }
+            }).httpBaseSrmSimbankPortInsert({ uid: '30001' }, card),
+        /请先激活并选择激活方向/
+    )
+    await assert.rejects(
+        () =>
+            new SimbankService({}, {}, utils, {
+                manager: {
+                    transaction: async callback =>
+                        callback({
+                            findOneBy: async () => ({ keyId: 1, activateStatus: 'active', countryKeyId: 86, insertStatus: 'inserted' }),
+                            save: async value => value
+                        })
+                }
+            }).httpBaseSrmSimbankPortInsert({ uid: '30001' }, card),
         /端口已插入 SIM 卡/
     )
-
-    const duplicated = {
-        manager: {
-            transaction: async callback =>
-                callback({
-                    findOneBy: async (_entity, where) =>
-                        where.iccid ? { keyId: 2, iccid: where.iccid } : { keyId: 1, insertStatus: 'removed' },
-                    save: async value => value
-                })
-        }
-    }
-    await assert.rejects(
-        () =>
-            new SimbankService({}, {}, {}, duplicated).httpBaseSrmSimbankPortInsert(
-                { uid: '30001' },
-                { keyId: 1, sim: '+8613800138000', iccid: '89860012345678901234', imei: '860000000000000' }
-            ),
-        /ICCID 已存在/
-    )
-
-    const port = { keyId: 1, insertStatus: 'removed' }
-    const saved = []
-    const available = {
+    const port = { keyId: 1, insertStatus: 'removed', activateStatus: 'active', countryKeyId: 86 }
+    const result = await new SimbankService({}, {}, utils, {
         manager: {
             transaction: async callback =>
                 callback({
                     findOneBy: async (_entity, where) => (where.iccid ? null : port),
-                    save: async value => {
-                        saved.push({ ...value })
-                        return value
-                    }
+                    save: async value => value
                 })
         }
-    }
-    const result = await new SimbankService({}, {}, {}, available).httpBaseSrmSimbankPortInsert(
+    }).httpBaseSrmSimbankPortInsert(
         { uid: '30001' },
-        { keyId: 1, sim: ' +8613800138000 ', iccid: ' 89860012345678901234 ', imei: ' 860000000000000 ' }
+        { keyId: 1, code: '86', sim: ' +8613800138000 ', iccid: ' 89860012345678901234 ', imei: ' 860000000000000 ' }
     )
     assert.equal(result.insertStatus, 'inserted')
     assert.equal(result.sim, '+8613800138000')
-    assert.equal(result.iccid, '89860012345678901234')
-    assert.equal(result.imei, '860000000000000')
-    assert.equal(saved[0].modifyBy, '30001')
+    assert.equal(result.modifyBy, '30001')
 })
 
-test('激活要求已插卡且未激活，并写入激活方向', async () => {
-    const removed = {
-        manager: {
-            transaction: async callback => callback({ findOneBy: async () => ({ keyId: 1, insertStatus: 'removed' }) })
-        }
-    }
+test('激活不要求先插卡，已激活时拒绝并写入激活方向', async () => {
     await assert.rejects(
-        () => new SimbankService({}, {}, {}, removed).httpBaseSrmSimbankPortActivate({ uid: '30001' }, { keyId: 1, countryKeyId: 1024 }),
-        /请先插入 SIM 卡/
-    )
-    const active = {
-        manager: {
-            transaction: async callback =>
-                callback({ findOneBy: async () => ({ keyId: 1, insertStatus: 'inserted', activateStatus: 'active' }) })
-        }
-    }
-    await assert.rejects(
-        () => new SimbankService({}, {}, {}, active).httpBaseSrmSimbankPortActivate({ uid: '30001' }, { keyId: 1, countryKeyId: 1024 }),
+        () =>
+            new SimbankService(
+                {},
+                {},
+                {},
+                {
+                    manager: {
+                        transaction: async callback => callback({ findOneBy: async () => ({ keyId: 1, activateStatus: 'active' }) })
+                    }
+                }
+            ).httpBaseSrmSimbankPortActivate({ uid: '30001' }, { keyId: 1, countryKeyId: 1024 }),
         /SIM 卡已激活/
     )
-    const port = { keyId: 1, insertStatus: 'inserted', activateStatus: 'inactive' }
+    const port = { keyId: 1, insertStatus: 'removed', activateStatus: 'inactive' }
     const result = await new SimbankService(
         {},
         {},
         {},
         {
             manager: {
-                transaction: async callback =>
-                    callback({
-                        findOneBy: async () => port,
-                        save: async value => value
-                    })
+                transaction: async callback => callback({ findOneBy: async () => port, save: async value => value })
             }
         }
     ).httpBaseSrmSimbankPortActivate({ uid: '30001' }, { keyId: 1, countryKeyId: 1024 })
     assert.equal(result.activateStatus, 'active')
     assert.equal(result.countryKeyId, 1024)
+    assert.equal(result.insertStatus, 'removed')
+    assert.equal(result.modifyBy, '30001')
+})
+
+test('拔卡清除卡号但保留激活方向，未插卡时拒绝', async () => {
+    await assert.rejects(
+        () =>
+            new SimbankService(
+                {},
+                {},
+                {},
+                {
+                    manager: {
+                        transaction: async callback => callback({ findOneBy: async () => ({ keyId: 1, insertStatus: 'removed' }) })
+                    }
+                }
+            ).httpBaseSrmSimbankPortRemove({ uid: '30001' }, { keyId: 1 }),
+        /端口未插入 SIM 卡/
+    )
+    const port = {
+        keyId: 1,
+        insertStatus: 'inserted',
+        activateStatus: 'active',
+        countryKeyId: 1024,
+        sim: '+8613800138000',
+        iccid: '89860012345678901234',
+        imei: '860000000000000'
+    }
+    const result = await new SimbankService(
+        {},
+        {},
+        {},
+        {
+            manager: { transaction: async callback => callback({ findOneBy: async () => port, save: async value => value }) }
+        }
+    ).httpBaseSrmSimbankPortRemove({ uid: '30001' }, { keyId: 1 })
+    assert.equal(result.insertStatus, 'removed')
+    assert.equal(result.sim, null)
+    assert.equal(result.iccid, null)
+    assert.equal(result.imei, null)
+    assert.equal(result.activateStatus, 'active')
+    assert.equal(result.countryKeyId, 1024)
+    assert.equal(result.modifyBy, '30001')
+})
+
+test('释放已激活端口时清除卡号、激活状态和激活方向', async () => {
+    await assert.rejects(
+        () =>
+            new SimbankService(
+                {},
+                {},
+                {},
+                {
+                    manager: {
+                        transaction: async callback => callback({ findOneBy: async () => ({ keyId: 1, activateStatus: 'inactive' }) })
+                    }
+                }
+            ).httpBaseSrmSimbankPortRelease({ uid: '30001' }, { keyId: 1 }),
+        /端口未激活/
+    )
+    const port = {
+        keyId: 1,
+        insertStatus: 'inserted',
+        activateStatus: 'active',
+        countryKeyId: 1024,
+        sim: '+8613800138000',
+        iccid: '89860012345678901234',
+        imei: '860000000000000'
+    }
+    const result = await new SimbankService(
+        {},
+        {},
+        {},
+        {
+            manager: { transaction: async callback => callback({ findOneBy: async () => port, save: async value => value }) }
+        }
+    ).httpBaseSrmSimbankPortRelease({ uid: '30001' }, { keyId: 1 })
+    assert.equal(result.activateStatus, 'inactive')
+    assert.equal(result.insertStatus, 'removed')
+    assert.equal(result.countryKeyId, null)
+    assert.equal(result.sim, null)
+    assert.equal(result.iccid, null)
+    assert.equal(result.imei, null)
     assert.equal(result.modifyBy, '30001')
 })
