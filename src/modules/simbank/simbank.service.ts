@@ -321,7 +321,6 @@ export class SimbankService {
             qb.skip((page - 1) * size)
             qb.take(size)
             return await qb.getManyAndCount().then(async ([list, total]) => {
-                await this.simbankUtilsService.fetchAppendMessageColumnOptions(list)
                 return fetchResolver({ page, size, total, list })
             })
         })
