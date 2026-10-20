@@ -224,8 +224,12 @@ export class SimbankService {
                 qb.andWhere('t.status = :status', { status: input.status })
             }
             if (keyword) {
-                const clauses = ['t.sim LIKE :keyword', 't.iccid LIKE :keyword', 't.imei LIKE :keyword']
-                const params: Record<string, string | number | number[]> = { keyword: `%${keyword}%` }
+                const clauses = ['t.sim LIKE :simKeyword', 't.iccid LIKE :keyword', 't.imei LIKE :keyword']
+                /**SIM 卡号码入库不带 + 号，关键字去掉开头的 + 号再匹配**/
+                const params: Record<string, string | number | number[]> = {
+                    keyword: `%${keyword}%`,
+                    simKeyword: `%${keyword.replace(/^\+/, '')}%`
+                }
                 if (/^\d+$/.test(keyword)) {
                     clauses.push('t.port = :number', 't.keyId = :number')
                     params.number = Number(keyword)
@@ -267,12 +271,13 @@ export class SimbankService {
         })
     }
 
-    /** 按已激活方向的国际区号生成插卡模拟数据。 */
-    public httpBaseSrmSimbankPortFaker(code: string): SimbankDto.SimbankPortFakerResponseDto {
-        return this.simbankUtilsService.createPortCardFaker(code)
+    /** 按激活方向（Skyline 国家/地区主键）对应的国际区号生成插卡模拟数据。 */
+    public async httpBaseSrmSimbankPortFaker(query: SimbankDto.SimbankPortFakerQueryDto): Promise<SimbankDto.SimbankPortFakerResponseDto> {
+        const dial = await this.simbankUtilsService.fetchCountryDialCode(query.countryKeyId)
+        return this.simbankUtilsService.createPortCardFaker(dial)
     }
 
-    /** 插入 SIM 卡：必须已激活，且卡号属于激活方向的国际区号。 */
+    /** 插入 SIM 卡：必须已激活，且卡号属于端口已保存激活方向的国际区号。 */
     public async httpBaseSrmSimbankPortInsert(
         principal: AuthPrincipal,
         input: SimbankDto.InsertSimbankPortDto
@@ -285,13 +290,15 @@ export class SimbankService {
             if (port.insertStatus === Schema.TbSrmSimbankPortInsertStatus.INSERTED) {
                 throw new ConflictException('端口已插入 SIM 卡')
             }
-            this.simbankUtilsService.fetchCardMatchesDialCode(input.sim.trim(), input.iccid.trim(), input.code)
+            const sim = this.simbankUtilsService.fetchNormalizeSim(input.sim)
+            const dial = await this.simbankUtilsService.fetchCountryDialCode(port.countryKeyId)
+            this.simbankUtilsService.fetchCardMatchesDialCode(sim, input.iccid.trim(), dial)
             const iccid = input.iccid.trim()
             const duplicated = await manager.findOneBy(Schema.TbSrmSimbankPort, { iccid })
             if (duplicated && duplicated.keyId !== port.keyId) {
                 throw new ConflictException('ICCID 已存在')
             }
-            port.sim = input.sim.trim()
+            port.sim = sim
             port.iccid = iccid
             port.imei = input.imei.trim()
             port.insertStatus = Schema.TbSrmSimbankPortInsertStatus.INSERTED
