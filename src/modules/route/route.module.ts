@@ -5,7 +5,7 @@ import { FeignClientCrmManager, FeignClientSkylineManager, FeignClientSmsManager
 import { RouteController } from '@/modules/route/route.controller'
 import { RouteService } from '@/modules/route/route.service'
 
-/** 短信路由模块：方案 → 规则 → 规则通道，短信应用绑定方案；短信应用、客户和方向分别通过 SMS、CRM、Skyline Feign 查询。 */
+/** 短信路由模块：路由 → 规则 → 规则通道，短信应用绑定路由；短信应用、客户和方向分别通过 SMS、CRM、Skyline Feign 查询。 */
 @Module({
     imports: [
         TypeOrmModule.forFeature([
