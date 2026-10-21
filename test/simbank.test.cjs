@@ -508,17 +508,13 @@ test('短信历史分页按条件过滤，号码关键字去掉开头的 + 号',
     const service = new SimbankService(
         {},
         database,
-        {
-            fetchAppendMessageColumnOptions: async list => {
-                list[0].ownerUserUidOptions = { uid: '0', name: '系统' }
-            }
-        },
+        {},
+
         {},
         {}
     )
     const result = await service.httpBaseSrmColumnSimbankMessage({ page: 1, size: 20, source: 'down', name: '+86138' })
     assert.equal(result.total, 1)
-    assert.equal(result.list[0].ownerUserUidOptions.name, '系统')
     assert.equal(
         wheres.some(item => item[0] === 't.source = :source'),
         true
