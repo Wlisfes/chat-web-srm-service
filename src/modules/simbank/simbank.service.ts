@@ -301,7 +301,7 @@ export class SimbankService {
                     't.taskName LIKE :keyword',
                     't.simbankName LIKE :keyword',
                     't.simbankAlias LIKE :keyword',
-                    't.channelName LIKE :keyword',
+                    't.channelAlias LIKE :keyword',
                     't.userName LIKE :keyword',
                     't.userAlias LIKE :keyword',
                     't.statusCode LIKE :keyword'
@@ -413,7 +413,7 @@ export class SimbankService {
         })
     }
 
-    /** 释放已激活端口：清除卡号、激活状态和激活方向。 */
+    /** 释放已激活端口：清除卡号、激活状态和激活方向；已绑定通道的端口需先解绑。 */
     public async httpBaseSrmSimbankPortRelease(
         principal: AuthPrincipal,
         input: SimbankDto.SimbankPortKeyDto
@@ -422,6 +422,10 @@ export class SimbankService {
             const port = await this.findPortRequired(manager, input.keyId)
             if (port.activateStatus !== Schema.TbSrmSimbankPortActivateStatus.ACTIVE) {
                 throw new BadRequestException('端口未激活')
+            }
+            // 通道只能绑定同方向的激活端口，释放会清空激活方向，必须先从通道解绑。
+            if (await manager.existsBy(Schema.TbSrmChannelPort, { portKeyId: port.keyId })) {
+                throw new ConflictException('端口已绑定短信通道，请先解绑')
             }
             this.clearPortCard(port, principal.uid, true)
             return await manager.save(port)

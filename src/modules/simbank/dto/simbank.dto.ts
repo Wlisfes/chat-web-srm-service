@@ -219,6 +219,9 @@ export class SimbankMessageEnumsResponseDto extends EnumsResponseDto({
 export class SimbankMessageColumnResponseDto extends Schema.TbSrmSimbankMessageDto {
     @ApiProperty({ description: '归属人信息', required: false, type: feign.SkylineUserOptionResponseDto })
     ownerUserUidOptions?: feign.SkylineUserOptionResponseDto
+
+    @ApiProperty({ description: '通道负责人信息', required: false, type: feign.SkylineUserOptionResponseDto })
+    channelOwnerUserUidOptions?: feign.SkylineUserOptionResponseDto
 }
 
 /** 分页查询短信历史响应：POST /simbank/message/column。 */

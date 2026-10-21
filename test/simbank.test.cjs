@@ -404,7 +404,7 @@ test('拔卡清除卡号但保留激活方向，未插卡时拒绝', async () =>
     assert.equal(result.modifyBy, '30001')
 })
 
-test('释放已激活端口时清除卡号、激活状态和激活方向', async () => {
+test('释放已激活端口时清除卡号、激活状态和激活方向，已绑定通道的端口需先解绑', async () => {
     await assert.rejects(
         () =>
             new SimbankService(
@@ -428,12 +428,24 @@ test('释放已激活端口时清除卡号、激活状态和激活方向', async
         iccid: '89860012345678901234',
         imei: '860000000000000'
     }
+    const bound = new SimbankService(
+        {},
+        {},
+        {},
+        {
+            manager: { transaction: async callback => callback({ findOneBy: async () => ({ ...port }), existsBy: async () => true }) }
+        }
+    ).httpBaseSrmSimbankPortRelease({ uid: '30001' }, { keyId: 1 })
+    await assert.rejects(() => bound, /端口已绑定短信通道，请先解绑/)
     const result = await new SimbankService(
         {},
         {},
         {},
         {
-            manager: { transaction: async callback => callback({ findOneBy: async () => port, save: async value => value }) }
+            manager: {
+                transaction: async callback =>
+                    callback({ findOneBy: async () => port, existsBy: async () => false, save: async value => value })
+            }
         }
     ).httpBaseSrmSimbankPortRelease({ uid: '30001' }, { keyId: 1 })
     assert.equal(result.activateStatus, 'inactive')
