@@ -12,7 +12,8 @@ export class SimbankService {
         @InjectRepository(Schema.TbSrmSimbank) private readonly repository: Repository<Schema.TbSrmSimbank>,
         private readonly database: DataBaseService,
         private readonly simbankUtilsService: SimbankUtilsService,
-        @InjectRepository(Schema.TbSrmSimbankPort) private readonly portRepository: Repository<Schema.TbSrmSimbankPort>
+        @InjectRepository(Schema.TbSrmSimbankPort) private readonly portRepository: Repository<Schema.TbSrmSimbankPort>,
+        @InjectRepository(Schema.TbSrmSimbankMessage) private readonly messageRepository: Repository<Schema.TbSrmSimbankMessage>
     ) {}
 
     /** 设备静态枚举。 */
@@ -251,6 +252,79 @@ export class SimbankService {
         })
     }
 
+    /** 短信历史静态枚举。 */
+    public async httpBaseSrmSimbankMessageEnums(): Promise<SimbankDto.SimbankMessageEnumsResponseDto> {
+        return {
+            sourceOptions: Schema.TbSrmSimbankMessageSourceDefinition.options,
+            typeOptions: Schema.TbSrmSimbankMessageTypeDefinition.options,
+            encodingOptions: Schema.TbSrmSimbankMessageEncodingDefinition.options,
+            sendStatusOptions: Schema.TbSrmSimbankMessageSendStatusDefinition.options
+        }
+    }
+
+    /** 分页查询短信历史。号码关键字兼容开头的 + 号；设备、供应商和国家/地区使用快照字段过滤。 */
+    public async httpBaseSrmColumnSimbankMessage(
+        input: SimbankDto.ListSimbankMessageDto
+    ): Promise<PageResult<SimbankDto.SimbankMessageColumnResponseDto>> {
+        const { page, size } = fetchUntiePagination(input)
+        const keyword = input.name?.trim()
+        return this.database.builder(this.messageRepository, async qb => {
+            if (isNotEmpty(input.simbankKeyId)) {
+                qb.andWhere('t.simbankKeyId = :simbankKeyId', { simbankKeyId: input.simbankKeyId })
+            }
+            if (isNotEmpty(input.userKeyId)) {
+                qb.andWhere('t.userKeyId = :userKeyId', { userKeyId: input.userKeyId })
+            }
+            if (isNotEmpty(input.countryKeyId)) {
+                qb.andWhere('t.countryKeyId = :countryKeyId', { countryKeyId: input.countryKeyId })
+            }
+            if (isNotEmpty(input.source)) {
+                qb.andWhere('t.source = :source', { source: input.source })
+            }
+            if (isNotEmpty(input.type)) {
+                qb.andWhere('t.type = :type', { type: input.type })
+            }
+            if (isNotEmpty(input.encoding)) {
+                qb.andWhere('t.encoding = :encoding', { encoding: input.encoding })
+            }
+            if (isNotEmpty(input.sendStatus)) {
+                qb.andWhere('t.sendStatus = :sendStatus', { sendStatus: input.sendStatus })
+            }
+            if (keyword) {
+                const clauses = [
+                    't.fromNumber LIKE :numberKeyword',
+                    't.toNumber LIKE :numberKeyword',
+                    't.sim LIKE :numberKeyword',
+                    't.content LIKE :keyword',
+                    't.iccid LIKE :keyword',
+                    't.taskId LIKE :keyword',
+                    't.taskName LIKE :keyword',
+                    't.simbankName LIKE :keyword',
+                    't.simbankAlias LIKE :keyword',
+                    't.channelAlias LIKE :keyword',
+                    't.userName LIKE :keyword',
+                    't.userAlias LIKE :keyword',
+                    't.statusCode LIKE :keyword'
+                ]
+                const params: Record<string, string | number> = {
+                    keyword: `%${keyword}%`,
+                    numberKeyword: `%${keyword.replace(/^\+/, '')}%`
+                }
+                if (/^\d+$/.test(keyword)) {
+                    clauses.push('t.port = :number', 't.keyId = :number', 't.simbankKeyId = :number', 't.portKeyId = :number')
+                    params.number = Number(keyword)
+                }
+                qb.andWhere(`(${clauses.join(' OR ')})`, params)
+            }
+            qb.orderBy('t.createTime', 'DESC')
+            qb.addOrderBy('t.keyId', 'DESC')
+            qb.skip((page - 1) * size)
+            qb.take(size)
+            return await qb.getManyAndCount().then(async ([list, total]) => {
+                return fetchResolver({ page, size, total, list })
+            })
+        })
+    }
     /** 按供应商或关键词查找设备主键，供端口列表过滤使用。 */
     private async findSimbankKeyIds(input: { userKeyId?: number; keyword?: string }): Promise<number[]> {
         return this.database.builder(this.repository, async qb => {
@@ -339,7 +413,7 @@ export class SimbankService {
         })
     }
 
-    /** 释放已激活端口：清除卡号、激活状态和激活方向。 */
+    /** 释放已激活端口：清除卡号、激活状态和激活方向；已绑定通道的端口需先解绑。 */
     public async httpBaseSrmSimbankPortRelease(
         principal: AuthPrincipal,
         input: SimbankDto.SimbankPortKeyDto
@@ -348,6 +422,10 @@ export class SimbankService {
             const port = await this.findPortRequired(manager, input.keyId)
             if (port.activateStatus !== Schema.TbSrmSimbankPortActivateStatus.ACTIVE) {
                 throw new BadRequestException('端口未激活')
+            }
+            // 通道只能绑定同方向的激活端口，释放会清空激活方向，必须先从通道解绑。
+            if (await manager.existsBy(Schema.TbSrmChannelPort, { portKeyId: port.keyId })) {
+                throw new ConflictException('端口已绑定短信通道，请先解绑')
             }
             this.clearPortCard(port, principal.uid, true)
             return await manager.save(port)

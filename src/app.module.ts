@@ -11,6 +11,8 @@ import { DatabaseModule } from '@/database/database.module'
 import { HealthModule } from '@/health/health.module'
 import { UserModule } from '@/modules/user/user.module'
 import { SimbankModule } from '@/modules/simbank/simbank.module'
+import { ChannelModule } from '@/modules/channel/channel.module'
+import { RouteModule } from '@/modules/route/route.module'
 import { FeignModule } from '@/feign/feign.module'
 
 @Module({
@@ -27,6 +29,8 @@ import { FeignModule } from '@/feign/feign.module'
         HealthModule,
         UserModule,
         SimbankModule,
+        ChannelModule,
+        RouteModule,
         FeignModule
     ],
     controllers: [AppController],

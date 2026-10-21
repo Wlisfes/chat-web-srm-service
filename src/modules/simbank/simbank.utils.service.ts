@@ -174,6 +174,15 @@ export class SimbankUtilsService {
         }
         return list
     }
+    /** 批量还原短信历史归属人。 */
+    public async fetchAppendMessageColumnOptions<T extends Pick<Schema.TbSrmSimbankMessage, 'ownerUserUid' | 'channelOwnerUserUid'>>(
+        list: T[]
+    ) {
+        return feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, list, [
+            'ownerUserUid',
+            'channelOwnerUserUid'
+        ])
+    }
     /** 按激活方向国际区号生成插卡数据。SIM 以区号开头且不带 + 号，ICCID 以 89 加区号开头。 */
     public createPortCardFaker(code: string): { sim: string; iccid: string; imei: string } {
         const dial = this.fetchDialCodeRequired(code)
