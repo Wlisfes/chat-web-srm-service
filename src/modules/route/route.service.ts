@@ -25,28 +25,26 @@ export class RouteService {
     public httpBaseSrmRouteEnums(): RouteDto.RouteEnumsResponseDto {
         return {
             statusOptions: Schema.TbSrmRouteStatusDefinition.options,
+            routeTypeOptions: Schema.TbSrmRouteTypeDefinition.options,
             ruleStatusOptions: Schema.TbSrmRouteRuleStatusDefinition.options,
             channelStatusOptions: Schema.TbSrmRouteChannelStatusDefinition.options,
             typeOptions: Schema.TbSrmChannelTypeDefinition.options
         }
     }
 
-    /* ------------------------------ 路由方案 ------------------------------ */
+    /* ------------------------------ 路由 ------------------------------ */
 
-    /** 新增路由方案：别名非空时全表唯一；设为默认时在同一事务内取消原默认方案。 */
+    /** 新增路由：别名非空时全表唯一。新增路由一律为通用路由，绑定短信应用后自动变为定向路由。 */
     public async httpBaseSrmCreateRoute(principal: AuthPrincipal, input: RouteDto.CreateRouteDto): Promise<Schema.TbSrmRoute> {
         return this.repository.manager.transaction(async manager => {
             const alias = input.alias?.trim() || null
             await this.assertAliasAvailable(manager, alias)
-            const isDefault = input.isDefault === true
             const status = input.status ?? Schema.TbSrmRouteStatus.ENABLE
-            if (isDefault && status !== Schema.TbSrmRouteStatus.ENABLE) throw new BadRequestException('默认方案必须启用')
-            if (isDefault) await this.clearDefault(manager, principal.uid)
             return manager.save(
                 manager.create(Schema.TbSrmRoute, {
                     name: input.name.trim(),
                     alias,
-                    isDefault,
+                    type: Schema.TbSrmRouteType.GENERAL,
                     status,
                     remark: input.remark?.trim() || null,
                     createBy: principal.uid,
@@ -56,15 +54,13 @@ export class RouteService {
         })
     }
 
-    /** 编辑路由方案：可修改名称、别名、状态和备注；默认方案不能停用。 */
+    /** 编辑路由：可修改名称、别名、状态和备注；路由类型由短信应用绑定关系自动维护。 */
     public async httpBaseSrmUpdateRoute(principal: AuthPrincipal, input: RouteDto.UpdateRouteDto): Promise<Schema.TbSrmRoute> {
         return this.repository.manager.transaction(async manager => {
             const route = await this.findRouteRequired(manager, input.keyId)
             const alias = input.alias?.trim() || null
             await this.assertAliasAvailable(manager, alias, route.keyId)
-            if (route.isDefault && input.status !== Schema.TbSrmRouteStatus.ENABLE) {
-                throw new BadRequestException('默认方案不能停用，请先把其他方案设为默认')
-            }
+
             manager.merge(Schema.TbSrmRoute, route, {
                 name: input.name.trim(),
                 alias,
@@ -76,26 +72,12 @@ export class RouteService {
         })
     }
 
-    /** 设为默认方案：只有启用的方案可以设为默认，原默认方案自动取消。 */
-    public async httpBaseSrmRouteDefaultUpdate(principal: AuthPrincipal, input: RouteDto.RouteKeyDto): Promise<Schema.TbSrmRoute> {
-        return this.repository.manager.transaction(async manager => {
-            const route = await this.findRouteRequired(manager, input.keyId)
-            if (route.status !== Schema.TbSrmRouteStatus.ENABLE) throw new BadRequestException('停用的方案不能设为默认')
-            if (route.isDefault) return route
-            await this.clearDefault(manager, principal.uid)
-            route.isDefault = true
-            route.modifyBy = principal.uid
-            return manager.save(route)
-        })
-    }
-
-    /** 删除路由方案：默认方案和仍有短信应用绑定的方案不能删除；同时删除方案下的规则和规则通道。 */
+    /** 删除路由：仍有短信应用绑定的定向路由不能删除；同时删除路由下的规则和规则通道。 */
     public async httpBaseSrmDeleteRoute(input: RouteDto.RouteKeyDto): Promise<{ success: boolean }> {
         return this.repository.manager.transaction(async manager => {
             const route = await this.findRouteRequired(manager, input.keyId)
-            if (route.isDefault) throw new ConflictException('默认方案不能删除，请先把其他方案设为默认')
             if (await manager.existsBy(Schema.TbSrmRouteApp, { routeKeyId: route.keyId })) {
-                throw new ConflictException('方案仍有短信应用绑定，请先解绑或改绑')
+                throw new ConflictException('路由仍有短信应用绑定，请先解绑或改绑')
             }
             const rules = await manager.find(Schema.TbSrmRouteRule, { select: { keyId: true }, where: { routeKeyId: route.keyId } })
             if (rules.length > 0) {
@@ -107,20 +89,20 @@ export class RouteService {
         })
     }
 
-    /** 路由方案详情。 */
+    /** 路由详情。 */
     public async httpBaseSrmRouteResolver(input: RouteDto.RouteKeyDto): Promise<Schema.TbSrmRoute> {
         return this.findRouteRequired(this.repository.manager, input.keyId)
     }
 
-    /** 路由方案分页：默认方案排在最前，附带规则数和绑定短信应用数。 */
+    /** 路由分页：通用路由排在最前，附带规则数和绑定短信应用数。 */
     public async httpBaseSrmColumnRoute(input: RouteDto.ListRouteDto): Promise<PageResult<RouteDto.RouteColumnResponseDto>> {
         const { page, size } = fetchUntiePagination(input)
         return this.database.builder(this.repository, async qb => {
             const keyword = input.name?.trim()
             if (keyword) qb.andWhere('(t.name LIKE :keyword OR t.alias LIKE :keyword)', { keyword: `%${keyword}%` })
             if (isNotEmpty(input.status)) qb.andWhere('t.status = :status', { status: input.status })
-            if (isNotEmpty(input.isDefault)) qb.andWhere('t.isDefault = :isDefault', { isDefault: input.isDefault })
-            qb.orderBy('t.isDefault', 'DESC').addOrderBy('t.createTime', 'DESC').addOrderBy('t.keyId', 'DESC')
+            if (isNotEmpty(input.type)) qb.andWhere('t.type = :type', { type: input.type })
+            qb.orderBy('t.type', 'ASC').addOrderBy('t.createTime', 'DESC').addOrderBy('t.keyId', 'DESC')
             qb.skip((page - 1) * size).take(size)
             const [list, total] = await qb.getManyAndCount()
             const keyIds = list.map(item => item.keyId)
@@ -146,17 +128,17 @@ export class RouteService {
         })
     }
 
-    /** 路由方案下拉：默认方案排在最前。 */
+    /** 路由下拉：通用路由排在最前。 */
     public async httpBaseSrmSelectRoute(): Promise<RouteDto.RouteSelectResponseDto[]> {
         return this.repository.find({
-            select: { keyId: true, name: true, alias: true, isDefault: true, status: true },
-            order: { isDefault: 'DESC', createTime: 'DESC', keyId: 'DESC' }
+            select: { keyId: true, name: true, alias: true, type: true, status: true },
+            order: { type: 'ASC', createTime: 'DESC', keyId: 'DESC' }
         })
     }
 
     /* ------------------------------ 路由规则 ------------------------------ */
 
-    /** 新增路由规则：同一方案内 方向 + 类型 + 运营商 + 号码段 唯一；号码段必须以方向国际区号开头。 */
+    /** 新增路由规则：同一路由内 方向 + 类型 + 运营商 + 号码段 唯一；号码段必须以方向国际区号开头。 */
     public async httpBaseSrmCreateRouteRule(principal: AuthPrincipal, input: RouteDto.CreateRouteRuleDto): Promise<Schema.TbSrmRouteRule> {
         const country = await this.findCountryRequired(input.countryKeyId)
         const mnc = input.mnc?.trim() ?? ''
@@ -167,7 +149,7 @@ export class RouteService {
         return this.repository.manager.transaction(async manager => {
             await this.findRouteRequired(manager, input.routeKeyId)
             const where = { routeKeyId: input.routeKeyId, countryKeyId: input.countryKeyId, type: input.type, mnc, prefix }
-            if (await manager.existsBy(Schema.TbSrmRouteRule, where)) throw new ConflictException('该方案已存在相同匹配条件的规则')
+            if (await manager.existsBy(Schema.TbSrmRouteRule, where)) throw new ConflictException('该路由已存在相同匹配条件的规则')
             return manager.save(
                 manager.create(Schema.TbSrmRouteRule, {
                     ...where,
@@ -201,22 +183,42 @@ export class RouteService {
         })
     }
 
-    /** 路由规则分页：附带方向、通道数和可用通道数。 */
+    /** 路由规则分页：路由可选，不传时查询全部路由的规则；附带所属路由、方向、通道数和可用通道数。 */
     public async httpBaseSrmColumnRouteRule(input: RouteDto.ListRouteRuleDto): Promise<PageResult<RouteDto.RouteRuleColumnResponseDto>> {
         const { page, size } = fetchUntiePagination(input)
         const repository = this.repository.manager.getRepository(Schema.TbSrmRouteRule)
         return this.database.builder(repository, async qb => {
-            qb.where('t.routeKeyId = :routeKeyId', { routeKeyId: input.routeKeyId })
+            if (isNotEmpty(input.routeKeyId)) qb.andWhere('t.routeKeyId = :routeKeyId', { routeKeyId: input.routeKeyId })
+            if (isNotEmpty(input.prefix?.trim())) qb.andWhere('t.prefix LIKE :prefix', { prefix: `%${input.prefix?.trim()}%` })
             if (isNotEmpty(input.countryKeyId)) qb.andWhere('t.countryKeyId = :countryKeyId', { countryKeyId: input.countryKeyId })
             if (isNotEmpty(input.type)) qb.andWhere('t.type = :type', { type: input.type })
             if (isNotEmpty(input.status)) qb.andWhere('t.status = :status', { status: input.status })
-            qb.orderBy('t.countryKeyId', 'ASC').addOrderBy('t.type', 'ASC').addOrderBy('t.prefix', 'ASC').addOrderBy('t.mnc', 'ASC')
+            qb.orderBy('t.routeKeyId', 'ASC')
+                .addOrderBy('t.countryKeyId', 'ASC')
+                .addOrderBy('t.type', 'ASC')
+                .addOrderBy('t.prefix', 'ASC')
+                .addOrderBy('t.mnc', 'ASC')
             qb.skip((page - 1) * size).take(size)
             const [list, total] = await qb.getManyAndCount()
-            const channels = await this.findRuleChannels(list.map(item => item.keyId))
+            const routeKeyIds = [...new Set(list.map(item => item.routeKeyId))]
+            const [channels, routes] = await Promise.all([
+                this.findRuleChannels(list.map(item => item.keyId)),
+                routeKeyIds.length
+                    ? this.repository.find({
+                          select: { keyId: true, name: true, alias: true, type: true, status: true },
+                          where: { keyId: In(routeKeyIds) }
+                      })
+                    : Promise.resolve([] as Schema.TbSrmRoute[])
+            ])
             const rows = list.map(item => {
                 const own = channels.filter(channel => channel.ruleKeyId === item.keyId)
-                return { ...item, channelCount: own.length, activeChannelCount: own.filter(channel => channel.active).length }
+                const route = routes.find(row => row.keyId === item.routeKeyId)
+                return {
+                    ...item,
+                    routeKeyIdOptions: route ? this.pickRoute(route) : undefined,
+                    channelCount: own.length,
+                    activeChannelCount: own.filter(channel => channel.active).length
+                }
             })
             await Promise.all([
                 feign.fetchAppendSkylineCountryOptions(this.skylineFeignClient, this.configService, rows, ['countryKeyId']),
@@ -287,7 +289,7 @@ export class RouteService {
 
     /* ------------------------------ 短信应用绑定 ------------------------------ */
 
-    /** 短信应用绑定方案：应用必须存在；已绑定其他方案的应用改绑到当前方案。 */
+    /** 短信应用绑定路由：应用必须存在；已绑定其他路由的应用改绑到当前路由。当前路由变为定向路由，改绑后没有应用的原路由变回通用路由。 */
     public async httpBaseSrmBindRouteApp(
         principal: AuthPrincipal,
         input: RouteDto.BindRouteAppDto
@@ -298,6 +300,7 @@ export class RouteService {
         return this.repository.manager.transaction(async manager => {
             await this.findRouteRequired(manager, input.routeKeyId)
             const existed = await manager.find(Schema.TbSrmRouteApp, { where: { appKeyId: In(appKeyIds) } })
+            const previousRouteKeyIds = existed.map(item => item.routeKeyId)
             for (const app of apps) {
                 const binding = existed.find(item => item.appKeyId === app.keyId)
                 if (binding) {
@@ -317,17 +320,30 @@ export class RouteService {
                     })
                 }
             }
+            await this.syncRouteType(manager, [input.routeKeyId, ...previousRouteKeyIds], principal.uid)
             return { count: apps.length }
         })
     }
 
-    /** 解绑短信应用：解绑后应用走默认方案。 */
-    public async httpBaseSrmUnbindRouteApp(input: RouteDto.UnbindRouteAppDto): Promise<RouteDto.RouteCountResponseDto> {
-        const result = await this.repository.manager.delete(Schema.TbSrmRouteApp, { keyId: In([...new Set(input.keyIds)]) })
-        return { count: result.affected ?? 0 }
+    /** 解绑短信应用：解绑后应用走通用路由；路由没有绑定应用后变回通用路由。 */
+    public async httpBaseSrmUnbindRouteApp(
+        principal: AuthPrincipal,
+        input: RouteDto.UnbindRouteAppDto
+    ): Promise<RouteDto.RouteCountResponseDto> {
+        return this.repository.manager.transaction(async manager => {
+            const keyIds = [...new Set(input.keyIds)]
+            const bindings = await manager.find(Schema.TbSrmRouteApp, { select: { routeKeyId: true }, where: { keyId: In(keyIds) } })
+            const result = await manager.delete(Schema.TbSrmRouteApp, { keyId: In(keyIds) })
+            await this.syncRouteType(
+                manager,
+                bindings.map(item => item.routeKeyId),
+                principal.uid
+            )
+            return { count: result.affected ?? 0 }
+        })
     }
 
-    /** 短信应用绑定分页：附带短信应用、客户和方案信息。 */
+    /** 短信应用绑定分页：附带短信应用、客户和路由信息。 */
     public async httpBaseSrmColumnRouteApp(input: RouteDto.ListRouteAppDto): Promise<PageResult<RouteDto.RouteAppColumnResponseDto>> {
         const { page, size } = fetchUntiePagination(input)
         const repository = this.repository.manager.getRepository(Schema.TbSrmRouteApp)
@@ -346,7 +362,7 @@ export class RouteService {
                     this.smsFeignClient.httpBaseSmsColumnAppResolver(authorization, { keyIds: rows.map(item => item.appKeyId) }),
                     this.crmFeignClient.httpBaseCrmColumnUserResolver(authorization, { keyIds: userKeyIds }),
                     this.repository.find({
-                        select: { keyId: true, name: true, alias: true, isDefault: true, status: true },
+                        select: { keyId: true, name: true, alias: true, type: true, status: true },
                         where: { keyId: In([...new Set(rows.map(item => item.routeKeyId))]) }
                     })
                 ])
@@ -365,8 +381,8 @@ export class RouteService {
     /* ------------------------------ 选路预览 ------------------------------ */
 
     /**
-     * 选路预览：按 短信应用绑定方案 → 默认方案 的顺序查找规则。
-     * 同一方案内按 号码段 > 运营商 > 方向 从细到粗匹配，跳过没有可用通道的规则；
+     * 选路预览：先查短信应用绑定的定向路由，再按创建时间从早到晚依次查启用的通用路由。
+     * 同一路由内按 号码段 > 运营商 > 方向 从细到粗匹配，跳过没有可用通道的规则；
      * 命中规则后取最高可用优先级内的通道按权重分流。
      */
     public async httpBaseSrmRoutePreview(input: RouteDto.RoutePreviewDto): Promise<RouteDto.RoutePreviewResponseDto> {
@@ -379,13 +395,16 @@ export class RouteService {
 
         const binding = await this.repository.manager.findOneBy(Schema.TbSrmRouteApp, { appKeyId: app.keyId })
         const bound = binding ? await this.repository.findOneBy({ keyId: binding.routeKeyId }) : null
-        const fallback = await this.repository.findOneBy({ isDefault: true })
-        const routes = [bound, fallback].filter(
+        const generals = await this.repository.find({
+            where: { type: Schema.TbSrmRouteType.GENERAL, status: Schema.TbSrmRouteStatus.ENABLE },
+            order: { createTime: 'ASC', keyId: 'ASC' }
+        })
+        const routes = [bound, ...generals].filter(
             (route, index, list): route is Schema.TbSrmRoute =>
                 !!route && route.status === Schema.TbSrmRouteStatus.ENABLE && list.findIndex(item => item?.keyId === route.keyId) === index
         )
         if (routes.length === 0)
-            return { ...base, matched: false, fallback: false, message: '没有可用的路由方案：应用未绑定方案且未配置默认方案' }
+            return { ...base, matched: false, fallback: false, message: '没有可用的路由：应用未绑定定向路由且没有启用的通用路由' }
 
         let firstMatch: { route: Schema.TbSrmRoute; rule: RuleCandidate; channels: RouteDto.RouteChannelResponseDto[] } | undefined
         for (const route of routes) {
@@ -399,7 +418,7 @@ export class RouteService {
                         ...base,
                         matched: true,
                         fallback: route.keyId !== bound?.keyId,
-                        message: `命中方案【${route.name}】规则：${this.describeRule(rule)}`,
+                        message: `命中路由【${route.name}】规则：${this.describeRule(rule)}`,
                         routeOptions: this.pickRoute(route),
                         ruleOptions: rule,
                         channels: this.markSelected(own)
@@ -412,18 +431,18 @@ export class RouteService {
                 ...base,
                 matched: false,
                 fallback: firstMatch.route.keyId !== bound?.keyId,
-                message: `命中方案【${firstMatch.route.name}】规则：${this.describeRule(firstMatch.rule)}，但没有可用通道`,
+                message: `命中路由【${firstMatch.route.name}】规则：${this.describeRule(firstMatch.rule)}，但没有可用通道`,
                 routeOptions: this.pickRoute(firstMatch.route),
                 ruleOptions: firstMatch.rule,
                 channels: this.markSelected(firstMatch.channels)
             }
         }
-        return { ...base, matched: false, fallback: false, message: '绑定方案和默认方案都没有匹配该号码和短信类型的启用规则' }
+        return { ...base, matched: false, fallback: false, message: '定向路由和通用路由都没有匹配该号码和短信类型的启用规则' }
     }
 
     /* ------------------------------ 内部工具 ------------------------------ */
 
-    /** 查询方案内与号码匹配的启用规则，并按 号码段长度 > 指定运营商 > 国际区号长度 从细到粗排序。 */
+    /** 查询路由内与号码匹配的启用规则，并按 号码段长度 > 指定运营商 > 国际区号长度 从细到粗排序。 */
     private async findMatchedRules(
         routeKeyId: number,
         type: Schema.TbSrmChannelType,
@@ -505,27 +524,38 @@ export class RouteService {
         return parts.join(' / ')
     }
 
-    /** 方案摘要。 */
+    /** 路由摘要。 */
     private pickRoute(route: Schema.TbSrmRoute): RouteDto.RouteSelectResponseDto {
-        return { keyId: route.keyId, name: route.name, alias: route.alias, isDefault: route.isDefault, status: route.status }
+        return { keyId: route.keyId, name: route.name, alias: route.alias, type: route.type, status: route.status }
     }
 
-    /** 取消原默认方案，保证全表只有一个默认方案。 */
-    private async clearDefault(manager: EntityManager, uid: string): Promise<void> {
-        await manager.update(Schema.TbSrmRoute, { isDefault: true }, { isDefault: false, modifyBy: uid })
+    /** 按绑定关系同步路由类型：有绑定应用为定向路由，没有则为通用路由。 */
+    private async syncRouteType(manager: EntityManager, routeKeyIds: number[], uid: string): Promise<void> {
+        const keyIds = [...new Set(routeKeyIds)].filter(keyId => Number.isInteger(keyId) && keyId > 0)
+        if (keyIds.length === 0) return
+        const bindings = await manager.find(Schema.TbSrmRouteApp, { select: { routeKeyId: true }, where: { routeKeyId: In(keyIds) } })
+        const bound = new Set(bindings.map(item => item.routeKeyId))
+        const targeted = keyIds.filter(keyId => bound.has(keyId))
+        const general = keyIds.filter(keyId => !bound.has(keyId))
+        if (targeted.length > 0) {
+            await manager.update(Schema.TbSrmRoute, { keyId: In(targeted) }, { type: Schema.TbSrmRouteType.TARGETED, modifyBy: uid })
+        }
+        if (general.length > 0) {
+            await manager.update(Schema.TbSrmRoute, { keyId: In(general) }, { type: Schema.TbSrmRouteType.GENERAL, modifyBy: uid })
+        }
     }
 
-    /** 校验方案别名未被其他方案使用。 */
+    /** 校验路由别名未被其他路由使用。 */
     private async assertAliasAvailable(manager: EntityManager, alias: string | null, keyId?: number): Promise<void> {
         if (!alias) return
         const where = keyId ? { alias, keyId: Not(keyId) } : { alias }
-        if (await manager.existsBy(Schema.TbSrmRoute, where)) throw new ConflictException(`方案别名【${alias}】已存在`)
+        if (await manager.existsBy(Schema.TbSrmRoute, where)) throw new ConflictException(`路由别名【${alias}】已存在`)
     }
 
-    /** 校验方案存在。 */
+    /** 校验路由存在。 */
     private async findRouteRequired(manager: EntityManager, keyId: number): Promise<Schema.TbSrmRoute> {
         const route = await manager.findOneBy(Schema.TbSrmRoute, { keyId })
-        if (!route) throw new NotFoundException('路由方案不存在')
+        if (!route) throw new NotFoundException('路由不存在')
         return route
     }
 

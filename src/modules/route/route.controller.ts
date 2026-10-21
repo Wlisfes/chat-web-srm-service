@@ -18,37 +18,28 @@ export class RouteController {
         return this.routeService.httpBaseSrmRouteEnums()
     }
 
-    /* ------------------------------ 路由方案 ------------------------------ */
+    /* ------------------------------ 路由 ------------------------------ */
 
     @ApiServiceDecorator(Post('create'), {
-        operation: { summary: '新增路由方案' },
+        operation: { summary: '新增路由' },
         request: { source: 'body', type: RouteDto.CreateRouteDto },
-        response: { type: Schema.TbSrmRouteDto, description: '新增后的路由方案' }
+        response: { type: Schema.TbSrmRouteDto, description: '新增后的路由' }
     })
     public async httpBaseSrmCreateRoute(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.CreateRouteDto) {
         return this.routeService.httpBaseSrmCreateRoute(principal, input)
     }
 
     @ApiServiceDecorator(Post('update'), {
-        operation: { summary: '编辑路由方案' },
+        operation: { summary: '编辑路由' },
         request: { source: 'body', type: RouteDto.UpdateRouteDto },
-        response: { type: Schema.TbSrmRouteDto, description: '编辑后的路由方案' }
+        response: { type: Schema.TbSrmRouteDto, description: '编辑后的路由' }
     })
     public async httpBaseSrmUpdateRoute(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.UpdateRouteDto) {
         return this.routeService.httpBaseSrmUpdateRoute(principal, input)
     }
 
-    @ApiServiceDecorator(Post('default/update'), {
-        operation: { summary: '设为默认路由方案' },
-        request: { source: 'body', type: RouteDto.RouteKeyDto },
-        response: { type: Schema.TbSrmRouteDto, description: '设为默认后的路由方案' }
-    })
-    public async httpBaseSrmRouteDefaultUpdate(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.RouteKeyDto) {
-        return this.routeService.httpBaseSrmRouteDefaultUpdate(principal, input)
-    }
-
     @ApiServiceDecorator(Post('delete'), {
-        operation: { summary: '删除路由方案' },
+        operation: { summary: '删除路由' },
         request: { source: 'body', type: RouteDto.RouteKeyDto },
         response: { type: SuccessResponseDataDto, description: '删除结果' }
     })
@@ -57,26 +48,26 @@ export class RouteController {
     }
 
     @ApiServiceDecorator(Get('resolve'), {
-        operation: { summary: '获取路由方案详情' },
+        operation: { summary: '获取路由详情' },
         request: { source: 'query', type: RouteDto.RouteKeyDto },
-        response: { type: Schema.TbSrmRouteDto, description: '路由方案详情' }
+        response: { type: Schema.TbSrmRouteDto, description: '路由详情' }
     })
     public async httpBaseSrmRouteResolver(@Query() input: RouteDto.RouteKeyDto) {
         return this.routeService.httpBaseSrmRouteResolver(input)
     }
 
     @ApiServiceDecorator(Post('column'), {
-        operation: { summary: '分页查询路由方案' },
+        operation: { summary: '分页查询路由' },
         request: { source: 'body', type: RouteDto.ListRouteDto },
-        response: { type: RouteDto.RoutePageResponseDto, description: '路由方案分页数据' }
+        response: { type: RouteDto.RoutePageResponseDto, description: '路由分页数据' }
     })
     public async httpBaseSrmColumnRoute(@Body() input: RouteDto.ListRouteDto) {
         return this.routeService.httpBaseSrmColumnRoute(input)
     }
 
     @ApiServiceDecorator(Get('select'), {
-        operation: { summary: '获取路由方案下拉选项' },
-        response: { type: RouteDto.RouteSelectResponseDto, isArray: true, description: '路由方案下拉选项' }
+        operation: { summary: '获取路由下拉选项' },
+        response: { type: RouteDto.RouteSelectResponseDto, isArray: true, description: '路由下拉选项' }
     })
     public async httpBaseSrmSelectRoute() {
         return this.routeService.httpBaseSrmSelectRoute()
@@ -167,7 +158,7 @@ export class RouteController {
     /* ------------------------------ 短信应用绑定 ------------------------------ */
 
     @ApiServiceDecorator(Post('app/bind'), {
-        operation: { summary: '短信应用绑定路由方案' },
+        operation: { summary: '短信应用绑定路由' },
         request: { source: 'body', type: RouteDto.BindRouteAppDto },
         response: { type: RouteDto.RouteCountResponseDto, description: '绑定数量' }
     })
@@ -176,12 +167,12 @@ export class RouteController {
     }
 
     @ApiServiceDecorator(Post('app/unbind'), {
-        operation: { summary: '短信应用解绑路由方案' },
+        operation: { summary: '短信应用解绑路由' },
         request: { source: 'body', type: RouteDto.UnbindRouteAppDto },
         response: { type: RouteDto.RouteCountResponseDto, description: '解绑数量' }
     })
-    public async httpBaseSrmUnbindRouteApp(@Body() input: RouteDto.UnbindRouteAppDto) {
-        return this.routeService.httpBaseSrmUnbindRouteApp(input)
+    public async httpBaseSrmUnbindRouteApp(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.UnbindRouteAppDto) {
+        return this.routeService.httpBaseSrmUnbindRouteApp(principal, input)
     }
 
     @ApiServiceDecorator(Post('app/column'), {
