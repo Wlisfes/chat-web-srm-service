@@ -2,7 +2,7 @@ import { ApiProperty, IntersectionType, PartialType, PickType } from '@nestjs/sw
 import { Type } from 'class-transformer'
 import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator'
 import { EnumsResponseDto, PageResponseDataDto } from '@wlisfes/chat-web-base-schema/decorator'
-import { PageDto, VagueDto } from '@wlisfes/chat-web-base-schema/utils'
+import { PageDto } from '@wlisfes/chat-web-base-schema/utils'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 
@@ -112,42 +112,4 @@ export class ChannelPortColumnResponseDto extends Schema.TbSrmChannelPortDto {
 export class ChannelPortPageResponseDto extends PageResponseDataDto {
     @ApiProperty({ description: '通道端口列表', type: [ChannelPortColumnResponseDto] })
     list: ChannelPortColumnResponseDto[]
-}
-
-/** 按方向和归属人查询端口入参：POST /channel/port/select。 */
-export class ListOwnerCountryPortDto extends IntersectionType(
-    PickType(Schema.TbSrmSimbankPortDto, ['countryKeyId'] as const),
-    PickType(Schema.TbSrmChannelDto, ['ownerUserUid'] as const),
-    VagueDto
-) {}
-
-/** 可绑定端口所属设备摘要。 */
-export class OwnerCountryPortSimbankDto extends PickType(Schema.TbSrmSimbankDto, [
-    'keyId',
-    'alias',
-    'name',
-    'mac',
-    'model',
-    'status',
-    'online'
-] as const) {}
-
-/** 按方向和归属人查询到的可绑定端口，附带所属设备信息。 */
-export class OwnerCountryPortItemDto extends PickType(Schema.TbSrmSimbankPortDto, [
-    'keyId',
-    'port',
-    'sim',
-    'imei',
-    'iccid',
-    'countryKeyId',
-    'simbankKeyId',
-    'insertStatus',
-    'activateStatus',
-    'status'
-] as const) {
-    @ApiProperty({ description: '所属设备信息', required: false, type: OwnerCountryPortSimbankDto })
-    simbankOptions?: OwnerCountryPortSimbankDto
-
-    @ApiProperty({ description: '下拉展示：设备别名 - 端口号', example: 'SSK1024SMSA001 - 端口[1]' })
-    showName: string
 }

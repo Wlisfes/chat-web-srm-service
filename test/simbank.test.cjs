@@ -521,3 +521,51 @@ test('短信历史分页按条件过滤，号码关键字去掉开头的 + 号',
     )
     assert.equal(wheres.find(item => String(item[0]).includes('fromNumber'))[1].numberKeyword, '%86138%')
 })
+test('按方向和归属人查询可绑定端口：不分页，附带设备，关键词模糊匹配 SIM、IMEI、ICCID', async () => {
+    const calls = []
+    const qb = {
+        where: (sql, params) => (calls.push([sql, params]), qb),
+        andWhere: (sql, params) => (calls.push([sql, params]), qb),
+        orderBy: () => qb,
+        addOrderBy: () => qb,
+        skip: () => {
+            throw new Error('不应分页')
+        },
+        take: () => {
+            throw new Error('不应分页')
+        },
+        getMany: async () => [
+            { keyId: 1002401, port: 1, sim: '8613800000001', simbankKeyId: 100202, countryKeyId: 1077 },
+            { keyId: 1002402, port: 2, sim: '8613800000002', simbankKeyId: 100202, countryKeyId: 1077 }
+        ]
+    }
+    const database = { builder: async (_repository, callback) => callback(qb), selection: async () => qb }
+    const simbank = { keyId: 100202, alias: 'SSK1233SMSA002', name: '昊天科技-澜沧' }
+    const service = new SimbankService(
+        {},
+        database,
+        {
+            findByOwnerUserUid: async () => ({ simbanks: [simbank], simbankOptions: new Map([[simbank.keyId, simbank]]) })
+        },
+        {}
+    )
+    const list = await service.httpBaseSrmSelectSimbankPort({ countryKeyId: 1077, ownerUserUid: '30001', vague: ' +86138 ' })
+    assert.equal(list.length, 2)
+    assert.equal(list[0].simbankOptions.name, '昊天科技-澜沧')
+    assert.equal(list[0].showName, 'SSK1233SMSA002 - 端口[1]')
+    assert.deepEqual(calls.find(([sql]) => sql.includes('t.imei LIKE'))[1], { vague: '%+86138%', simVague: '%86138%' })
+    assert.equal(
+        calls.some(([sql]) => String(sql).includes('NOT EXISTS')),
+        true
+    )
+})
+
+test('归属人名下没有设备时直接返回空列表', async () => {
+    const service = new SimbankService(
+        {},
+        { builder: async () => assert.fail('不应查询端口') },
+        { findByOwnerUserUid: async () => ({ simbanks: [], simbankOptions: new Map() }) },
+        {}
+    )
+    assert.deepEqual(await service.httpBaseSrmSelectSimbankPort({ countryKeyId: 1077, ownerUserUid: '30001' }), [])
+})

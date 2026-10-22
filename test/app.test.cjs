@@ -57,8 +57,8 @@ test('OpenAPI 请求和响应包含完整字段类型与示例', async () => {
             .map(([method, operation]) => ({ path, method, operation }))
     )
 
-    assert.equal(operations.length, 34)
-    assert.equal(operations.filter(({ operation }) => operation.requestBody).length, 19)
+    assert.equal(operations.length, 35)
+    assert.equal(operations.filter(({ operation }) => operation.requestBody).length, 20)
     assert.equal(operations.flatMap(({ operation }) => operation.parameters ?? []).filter(parameter => parameter.in === 'query').length, 7)
 
     for (const { path, method, operation } of operations) {

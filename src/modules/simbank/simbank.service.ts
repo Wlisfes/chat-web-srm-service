@@ -1,7 +1,14 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { InjectRepository, DataBaseService, Repository } from '@wlisfes/chat-web-base-schema/database'
-import { PageResult, isNotEmpty, fetchResolver, fetchUntiePagination } from '@wlisfes/chat-web-base-schema/utils'
+import {
+    PageResult,
+    isNotEmpty,
+    fetchResolver,
+    fetchUntiePagination,
+    fetchVagueKeyword,
+    fetchVagueNumberKeyword
+} from '@wlisfes/chat-web-base-schema/utils'
 import { SimbankUtilsService } from '@/modules/simbank/simbank.utils.service'
 import * as SimbankDto from '@/modules/simbank/dto/simbank.dto'
 import * as Schema from '@wlisfes/chat-web-base-schema'
@@ -452,5 +459,42 @@ export class SimbankService {
             throw new NotFoundException('端口不存在')
         }
         return port
+    }
+    /**
+     * 按激活方向、设备归属人查询可绑定到通道的端口；不分页，只返回已激活、已插卡、尚未绑定任何通道的端口。
+     * vague 模糊匹配 SIM、IMEI、ICCID；SIM 兼容传入开头的 + 号。
+     */
+    public async httpBaseSrmSelectSimbankPort(input: SimbankDto.ListOwnerCountryPortDto): Promise<SimbankDto.OwnerCountryPortItemDto[]> {
+        const { simbanks, simbankOptions } = await this.simbankUtilsService.findByOwnerUserUid(input.ownerUserUid)
+        if (simbanks.length === 0) return []
+        return this.database.builder(this.portRepository, async qb => {
+            qb.where('t.simbankKeyId IN (:...simbankKeyIds)', { simbankKeyIds: simbanks.map(item => item.keyId) })
+            qb.andWhere('t.countryKeyId = :countryKeyId', { countryKeyId: input.countryKeyId })
+            qb.andWhere('t.activateStatus = :activateStatus', { activateStatus: Schema.TbSrmSimbankPortActivateStatus.ACTIVE })
+            qb.andWhere('t.insertStatus = :insertStatus', { insertStatus: Schema.TbSrmSimbankPortInsertStatus.INSERTED })
+            qb.andWhere('NOT EXISTS (SELECT 1 FROM tb_srm_channel_port cp WHERE cp.port_key_id = t.key_id)')
+            const vague = fetchVagueKeyword(input.vague)
+            if (vague) {
+                qb.andWhere('(t.sim LIKE :simVague OR t.imei LIKE :vague OR t.iccid LIKE :vague)', {
+                    vague: `%${vague}%`,
+                    /**SIM 卡号码入库不带 + 号，关键词去掉开头的 + 号再匹配**/
+                    simVague: `%${fetchVagueNumberKeyword(input.vague)}%`
+                })
+            }
+            await this.database.selection(qb, [
+                ['t', ['keyId', 'port', 'sim', 'imei', 'iccid', 'countryKeyId', 'simbankKeyId', 'insertStatus', 'activateStatus', 'status']]
+            ])
+            qb.orderBy('t.simbankKeyId', 'DESC').addOrderBy('t.port', 'ASC')
+            return await qb.getMany().then(items =>
+                items.map(item => {
+                    const simbank = simbankOptions.get(item.simbankKeyId)
+                    return {
+                        ...item,
+                        simbankOptions: simbank,
+                        showName: [simbank?.alias, `端口[${item.port}]`].filter(Boolean).join(' - ')
+                    }
+                })
+            )
+        })
     }
 }

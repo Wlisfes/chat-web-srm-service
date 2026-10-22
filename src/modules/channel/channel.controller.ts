@@ -112,13 +112,4 @@ export class ChannelController {
     public async httpBaseSrmColumnChannelPort(@Body() input: ChannelDto.ListChannelPortDto) {
         return this.channelService.httpBaseSrmColumnChannelPort(input)
     }
-
-    @ApiServiceDecorator(Post('port/select'), {
-        operation: { summary: '按方向和归属人查询可绑定端口' },
-        request: { source: 'body', type: ChannelDto.ListOwnerCountryPortDto },
-        response: { type: ChannelDto.OwnerCountryPortItemDto, isArray: true, description: '匹配方向和归属人的全部可绑定端口，不分页' }
-    })
-    public async httpBaseSrmSelectChannelPort(@Body() input: ChannelDto.ListOwnerCountryPortDto) {
-        return this.channelService.httpBaseSrmSelectChannelPort(input)
-    }
 }
