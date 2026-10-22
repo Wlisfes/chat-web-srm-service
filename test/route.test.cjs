@@ -70,7 +70,7 @@ test('新增路由按传入类型保存，优先级默认 1；编辑不能修改
     const tables = { TbSrmRoute: [] }
     const service = createService(createManager(tables))
     const route = await service.httpBaseSrmCreateRoute(principal, { name: ' 大客户线路 ', type: 'SOTP' })
-    assert.deepEqual([route.name, route.type, route.alias, route.priority, route.status], ['大客户线路', 'SOTP', 'SK1024SOTPA001', 1, 'enable'])
+    assert.deepEqual([route.name, route.type, route.alias, route.priority, route.status], ['大客户线路', 'SOTP', 'LSK1024-SOTP-A001', 1, 'enable'])
     tables.TbSrmRoute.push({ ...route, keyId: 1 })
     const updated = await service.httpBaseSrmUpdateRoute(principal, {
         keyId: 1,
@@ -85,14 +85,14 @@ test('新增路由按传入类型保存，优先级默认 1；编辑不能修改
 test('路由别名按工号和类型自增，有绑定应用的路由不能删除', async () => {
     const tables = {
         TbSrmRoute: [
-            { keyId: 1, name: '通用', alias: 'SK1024SOTPA001', type: 'SOTP', status: 'enable' },
+            { keyId: 1, name: '通用', alias: 'LSK1024-SOTP-A001', type: 'SOTP', status: 'enable' },
             { keyId: 2, name: '专线', type: 'SOTP', status: 'enable' }
         ],
         TbSrmRouteApp: [{ keyId: 9, appKeyId: 1001, routeKeyId: 2 }]
     }
     const service = createService(createManager(tables))
     const created = await service.httpBaseSrmCreateRoute(principal, { name: 'B', type: 'SOTP', alias: 'RT-GENERAL' })
-    assert.equal(created.alias, 'SK1024SOTPA002')
+    assert.equal(created.alias, 'LSK1024-SOTP-A002')
     await assert.rejects(() => service.httpBaseSrmDeleteRoute({ keyId: 2 }), /仍有短信应用绑定/)
     assert.deepEqual(await service.httpBaseSrmDeleteRoute({ keyId: 1 }), { success: true })
 })

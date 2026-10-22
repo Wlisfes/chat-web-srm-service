@@ -36,7 +36,7 @@ export class RouteService {
 
     /* ------------------------------ 路由 ------------------------------ */
 
-    /** 新增路由：别名按 SK + 归属人工号 + 路由类型 + 分段序号自动生成；类型创建后不可修改。 */
+    /** 新增路由：别名按 LSK + 归属人工号 + 路由类型 + 分段序号自动生成；类型创建后不可修改。 */
     public async httpBaseSrmCreateRoute(principal: AuthPrincipal, input: RouteDto.CreateRouteDto): Promise<Schema.TbSrmRoute> {
         const ownerUserUid = input.ownerUserUid ?? principal.uid
         const ownerNumber = await this.resolveOwnerNumber(principal, ownerUserUid)
@@ -615,11 +615,11 @@ export class RouteService {
     }
 
     /**
-     * 生成路由别名：SK + 归属人工号 + 路由类型 + 4位分段序号。
+     * 生成路由别名：LSK + 归属人工号 + 路由类型 + 分段序号，例如 LSK1233-MRKT-A001。
      * 序号规则与短信应用别名一致：A001-Z999，用完后进入 AA01-ZZ99。同一工号同一类型内自增。
      */
     private async generateAlias(manager: EntityManager, number: string, type: Schema.TbSrmRouteType): Promise<string> {
-        const prefix = `SK${number}${type}`
+        const prefix = `LSK${number}-${type}-`
         const routes = await manager.find(Schema.TbSrmRoute, { select: { keyId: true, alias: true, type: true } })
         const maxSequence = routes.reduce((max, route) => {
             if (route.type !== type) return max

@@ -13,15 +13,15 @@ export class ChannelEnumsResponseDto extends EnumsResponseDto({
     typeOptions: { description: '通道类型选项', example: Schema.TbSmsAppTypeDefinition.options }
 }) {}
 
-/** 新增通道入参：POST /channel/create；别名按 创建人工号-方向MCC-类型-序号 自动生成，负责人默认当前登录人，新建通道默认停用。 */
+/** 新增通道入参：POST /channel/create；别名按 TSK + 归属人工号 + 类型 + 分段序号自动生成，归属人默认当前登录人，新建通道默认停用。 */
 export class CreateChannelDto extends IntersectionType(
-    PickType(Schema.TbSrmChannelDto, ['countryKeyId', 'type', 'sendInterval', 'maxRetry'] as const),
+    PickType(Schema.TbSrmChannelDto, ['name', 'countryKeyId', 'type', 'sendInterval', 'maxRetry'] as const),
     PartialType(PickType(Schema.TbSrmChannelDto, ['ownerUserUid', 'remark'] as const))
 ) {}
 
 /** 编辑通道入参：POST /channel/update；别名、方向、类型创建后不可修改。 */
 export class UpdateChannelDto extends IntersectionType(
-    PickType(Schema.TbSrmChannelDto, ['keyId', 'ownerUserUid', 'sendInterval', 'maxRetry'] as const),
+    PickType(Schema.TbSrmChannelDto, ['keyId', 'name', 'ownerUserUid', 'sendInterval', 'maxRetry'] as const),
     PartialType(PickType(Schema.TbSrmChannelDto, ['remark'] as const))
 ) {}
 
@@ -37,7 +37,7 @@ export class ListChannelDto extends IntersectionType(
     PartialType(PickType(Schema.TbSrmChannelDto, ['alias', 'type', 'countryKeyId', 'ownerUserUid', 'status'] as const))
 ) {}
 
-/** 通道列表项：附带方向、负责人、绑定端口数、启用端口数和引用路由数。 */
+/** 通道列表项：附带方向、归属人、绑定端口数、启用端口数和引用路由数。 */
 export class ChannelColumnResponseDto extends IntersectionType(Schema.TbSrmChannelDto, feign.SkylineUserOptionsResponseDto) {
     @ApiProperty({ description: '绑定端口数', example: 32 })
     portCount: number
@@ -51,7 +51,7 @@ export class ChannelColumnResponseDto extends IntersectionType(Schema.TbSrmChann
     @ApiProperty({ description: '方向信息', required: false, type: feign.SkylineCountrySummaryResponseDto })
     countryKeyIdOptions?: feign.SkylineCountrySummaryResponseDto
 
-    @ApiProperty({ description: '负责人信息', required: false, type: feign.SkylineUserOptionResponseDto })
+    @ApiProperty({ description: '归属人信息', required: false, type: feign.SkylineUserOptionResponseDto })
     ownerUserUidOptions?: feign.SkylineUserOptionResponseDto
 }
 
@@ -65,6 +65,7 @@ export class ChannelPageResponseDto extends PageResponseDataDto {
 export class ChannelSelectResponseDto extends PickType(Schema.TbSrmChannelDto, [
     'keyId',
     'alias',
+    'name',
     'type',
     'countryKeyId',
     'status'

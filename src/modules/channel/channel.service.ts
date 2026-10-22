@@ -28,16 +28,17 @@ export class ChannelService {
         }
     }
 
-    /** 新增通道：别名按 创建人工号-方向MCC-类型-序号 自动生成，负责人默认当前登录人，新建通道默认停用。 */
+    /** 新增通道：别名按 TSK + 归属人工号 + 类型 + 分段序号自动生成，归属人默认当前登录人，新建通道默认停用。 */
     public async httpBaseSrmCreateChannel(principal: AuthPrincipal, input: ChannelDto.CreateChannelDto): Promise<Schema.TbSrmChannel> {
         const country = await this.findCountryRequired(input.countryKeyId)
         const ownerUserUid = input.ownerUserUid ?? principal.uid
-        if (ownerUserUid !== principal.uid) await this.assertUserExists(ownerUserUid)
+        const ownerNumber = await this.resolveOwnerNumber(principal, ownerUserUid)
         return this.repository.manager.transaction(async manager => {
-            const alias = await this.createAlias(manager, principal.number, country.mcc, input.type)
+            const alias = await this.createAlias(manager, ownerNumber, input.type)
             return manager.save(
                 manager.create(Schema.TbSrmChannel, {
                     alias,
+                    name: input.name.trim(),
                     type: input.type,
                     countryKeyId: input.countryKeyId,
                     ownerUserUid,
@@ -52,12 +53,13 @@ export class ChannelService {
         })
     }
 
-    /** 编辑通道：别名、方向、类型不可修改；可调整负责人和发送参数。 */
+    /** 编辑通道：别名、方向、类型不可修改；可调整名称、归属人和发送参数。 */
     public async httpBaseSrmUpdateChannel(principal: AuthPrincipal, input: ChannelDto.UpdateChannelDto): Promise<Schema.TbSrmChannel> {
         return this.repository.manager.transaction(async manager => {
             const channel = await this.findChannelRequired(manager, input.keyId)
             if (input.ownerUserUid !== channel.ownerUserUid) await this.assertUserExists(input.ownerUserUid)
             manager.merge(Schema.TbSrmChannel, channel, {
+                name: input.name.trim(),
                 ownerUserUid: input.ownerUserUid,
                 sendInterval: input.sendInterval,
                 maxRetry: input.maxRetry,
@@ -109,12 +111,12 @@ export class ChannelService {
         return this.findChannelRequired(this.repository.manager, input.keyId)
     }
 
-    /** 通道分页：附带端口数、引用路由数、方向和负责人。 */
+    /** 通道分页：附带端口数、引用路由数、方向和归属人。 */
     public async httpBaseSrmColumnChannel(input: ChannelDto.ListChannelDto): Promise<PageResult<ChannelDto.ChannelColumnResponseDto>> {
         const { page, size } = fetchUntiePagination(input)
         return this.database.builder(this.repository, async qb => {
             const keyword = input.alias?.trim()
-            if (keyword) qb.andWhere('t.alias LIKE :keyword', { keyword: `%${keyword}%` })
+            if (keyword) qb.andWhere('(t.alias LIKE :keyword OR t.name LIKE :keyword)', { keyword: `%${keyword}%` })
             if (isNotEmpty(input.type)) qb.andWhere('t.type = :type', { type: input.type })
             if (isNotEmpty(input.countryKeyId)) qb.andWhere('t.countryKeyId = :countryKeyId', { countryKeyId: input.countryKeyId })
             if (isNotEmpty(input.ownerUserUid)) qb.andWhere('t.ownerUserUid = :ownerUserUid', { ownerUserUid: input.ownerUserUid })
@@ -299,23 +301,68 @@ export class ChannelService {
         if (remaining === 0) throw new ConflictException(`通道【${channel.alias}】启用中，至少保留一个启用端口，或先停用通道`)
     }
 
-    /** 生成通道别名：创建人工号-方向MCC-类型-序号，序号在同一前缀下递增，两位补零。 */
-    private async createAlias(manager: EntityManager, number: string, mcc: string, type: Schema.TbSmsAppType): Promise<string> {
-        if (!number) throw new BadRequestException('当前账号缺少工号，不能生成通道别名')
-        const prefix = `${number}-${mcc}-${type}-`.toUpperCase()
+    /**
+     * 生成通道别名：TSK + 归属人工号 + 类型 + 分段序号，例如 TSK1233-MRKT-A001。
+     * 序号规则与短信应用别名一致：同一工号同一类型内 A001-Z999，用完后进入 AA01-ZZ99。
+     */
+    private async createAlias(manager: EntityManager, number: string, type: Schema.TbSmsAppType): Promise<string> {
+        const prefix = `TSK${number}-${type}-`
         const rows = await manager
             .createQueryBuilder(Schema.TbSrmChannel, 't')
             .setLock('pessimistic_write')
             .select('t.alias')
             .where('t.alias LIKE :prefix', { prefix: `${prefix}%` })
             .getMany()
-        const max = rows.reduce((value, row) => Math.max(value, Number(row.alias.slice(prefix.length)) || 0), 0)
-        const alias = `${prefix}${String(max + 1).padStart(2, '0')}`
+        const max = rows.reduce((value, row) => Math.max(value, this.parseAliasSequence(row.alias, prefix)), 0)
+        const alias = `${prefix}${this.formatAliasSequence(max + 1)}`
         if (alias.length > 32) throw new BadRequestException('通道别名超过32位')
         return alias
     }
 
-    /** 查询方向，别名需要使用 MCC。 */
+    /** 取归属人工号：当前登录人直接用工号，其他人通过 Skyline 账号还原。 */
+    private async resolveOwnerNumber(principal: AuthPrincipal, ownerUserUid: string): Promise<string> {
+        if (ownerUserUid === principal.uid) return this.requireEmployeeNumber(principal.number, '当前登录账号')
+        const [user] = await this.skylineFeignClient.httpBaseSkylineColumnUserResolver(this.authorization(), { uids: [ownerUserUid] })
+        if (!user) throw new BadRequestException('归属人不存在')
+        return this.requireEmployeeNumber(user.number, '归属人')
+    }
+
+    private requireEmployeeNumber(number: string | undefined, label: string): string {
+        const userNumber = number?.trim()
+        if (!userNumber || !/^[A-Za-z0-9]+$/.test(userNumber)) throw new BadRequestException(`${label}缺少有效工号，无法生成通道别名`)
+        return userNumber
+    }
+
+    /** 把别名尾部序号转换为连续序号；不符合当前规则的历史别名返回 0。 */
+    private parseAliasSequence(alias: string, prefix: string): number {
+        const code = alias?.startsWith(prefix) ? alias.slice(prefix.length) : ''
+        const single = /^([A-Z])(\d{3})$/.exec(code)
+        if (single && Number(single[2]) > 0) return (single[1].charCodeAt(0) - 65) * 999 + Number(single[2])
+        const double = /^([A-Z])([A-Z])(\d{2})$/.exec(code)
+        if (double && Number(double[3]) > 0) {
+            const group = (double[1].charCodeAt(0) - 65) * 26 + double[2].charCodeAt(0) - 65
+            return 26 * 999 + group * 99 + Number(double[3])
+        }
+        return 0
+    }
+
+    /** 把连续序号格式化为分段序号：A001-Z999，之后 AA01-ZZ99。 */
+    private formatAliasSequence(sequence: number): string {
+        const singleCapacity = 26 * 999
+        const capacity = singleCapacity + 26 * 26 * 99
+        if (!Number.isInteger(sequence) || sequence < 1 || sequence > capacity) {
+            throw new ConflictException('当前工号该类型通道别名序号已用完')
+        }
+        if (sequence <= singleCapacity) {
+            const index = sequence - 1
+            return `${String.fromCharCode(65 + Math.floor(index / 999))}${String((index % 999) + 1).padStart(3, '0')}`
+        }
+        const index = sequence - singleCapacity - 1
+        const group = Math.floor(index / 99)
+        return `${String.fromCharCode(65 + Math.floor(group / 26), 65 + (group % 26))}${String((index % 99) + 1).padStart(2, '0')}`
+    }
+
+    /** 查询方向，通道必须绑定已存在的方向。 */
     private async findCountryRequired(countryKeyId: number): Promise<feign.SkylineCountrySummaryResponseDto> {
         const authorization = feign.resolveFeignServiceAuthorization(this.configService)
         const [country] = await this.skylineFeignClient.httpBaseSkylineColumnCountryResolver(authorization, { keyIds: [countryKeyId] })
@@ -323,11 +370,15 @@ export class ChannelService {
         return country
     }
 
-    /** 校验负责人账号存在。 */
+    private authorization(): string {
+        return feign.resolveFeignServiceAuthorization(this.configService)
+    }
+
+    /** 校验归属人账号存在。 */
     private async assertUserExists(uid: string): Promise<void> {
-        const authorization = feign.resolveFeignServiceAuthorization(this.configService)
+        const authorization = this.authorization()
         const [user] = await this.skylineFeignClient.httpBaseSkylineColumnUserResolver(authorization, { uids: [uid] })
-        if (!user) throw new BadRequestException('负责人不存在')
+        if (!user) throw new BadRequestException('归属人不存在')
     }
 
     /** 按关键词查端口主键：SIM、ICCID 匹配端口，名称或别名匹配设备。 */

@@ -32,25 +32,27 @@ const skyline = {
     httpBaseSkylineColumnUserResolver: async ({}, { uids }) => uids.filter(uid => uid !== 'missing').map(uid => ({ uid }))
 }
 
-test('新增通道按 工号-MCC-类型-序号 生成别名，负责人默认当前登录人，默认停用', async () => {
+test('新增通道按 TSK+归属人工号+类型+分段序号 生成别名，归属人默认当前登录人，默认停用', async () => {
     const manager = {
-        createQueryBuilder: aliasQuery(['1024-460-MRKT-01', '1024-460-MRKT-03', '1024-460-SOTP-07']),
+        createQueryBuilder: aliasQuery(['TSK1024-MRKT-A001', 'TSK1024-MRKT-A003', 'TSK1024-SOTP-A007']),
         create: (_entity, value) => value,
         save: async value => value
     }
     const result = await createService(manager, { skyline }).httpBaseSrmCreateChannel(principal, {
+        name: ' 香港营销主通道 ',
         countryKeyId: 1007,
         type: 'MRKT',
         sendInterval: 3000,
         maxRetry: 3
     })
-    assert.equal(result.alias, '1024-460-MRKT-04')
+    assert.equal(result.alias, 'TSK1024-MRKT-A004')
+    assert.equal(result.name, '香港营销主通道')
     assert.equal(result.countryKeyId, 1007)
     assert.equal(result.ownerUserUid, '30001')
     assert.equal(result.status, 'disable')
 })
 
-test('新增通道时方向或负责人不存在则拒绝', async () => {
+test('新增通道时方向或归属人不存在则拒绝', async () => {
     const noCountry = { ...skyline, httpBaseSkylineColumnCountryResolver: async () => [] }
     await assert.rejects(
         () => createService({}, { skyline: noCountry }).httpBaseSrmCreateChannel(principal, { countryKeyId: 1, type: 'MRKT' }),
@@ -63,7 +65,7 @@ test('新增通道时方向或负责人不存在则拒绝', async () => {
                 type: 'MRKT',
                 ownerUserUid: 'missing'
             }),
-        /负责人不存在/
+        /归属人不存在/
     )
 })
 
