@@ -50,7 +50,7 @@ export class RouteController {
     @ApiServiceDecorator(Get('resolve'), {
         operation: { summary: '获取路由详情' },
         request: { source: 'query', type: RouteDto.RouteKeyDto },
-        response: { type: Schema.TbSrmRouteDto, description: '路由详情' }
+        response: { type: RouteDto.RouteResolverResponseDto, description: '路由详情（含绑定的通道列表）' }
     })
     public async httpBaseSrmRouteResolver(@Query() input: RouteDto.RouteKeyDto) {
         return this.routeService.httpBaseSrmRouteResolver(input)

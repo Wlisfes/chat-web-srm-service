@@ -183,6 +183,12 @@ export class RouteChannelResponseDto extends Schema.TbSrmRouteChannelDto {
     ratio: number
 }
 
+/** 路由详情响应：GET /route/resolve；附带路由绑定的通道列表。 */
+export class RouteResolverResponseDto extends Schema.TbSrmRouteDto {
+    @ApiProperty({ description: '绑定的通道列表（含通道信息、可用状态和分流占比）', type: [RouteChannelResponseDto] })
+    channels: RouteChannelResponseDto[]
+}
+
 /* ------------------------------ 短信应用绑定 ------------------------------ */
 
 /** 短信应用绑定路由入参：POST /route/app/bind；只能绑定同类型路由，已绑定其他路由的应用会改绑到当前路由。 */

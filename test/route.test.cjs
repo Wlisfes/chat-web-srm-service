@@ -1,6 +1,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const { RouteService } = require('../dist/modules/route/route.service')
+const { RouteUtilsService } = require('../dist/modules/route/route.utils.service')
 
 const principal = { uid: '30001', number: '1024' }
 const countries = { 1007: { keyId: 1007, code: '852', cnName: '中国香港' }, 1008: { keyId: 1008, code: '63', cnName: '菲律宾' } }
@@ -63,7 +64,9 @@ function createService(manager) {
         find: options => manager.find({ name: 'TbSrmRoute' }, options),
         findOneBy: where => manager.findOneBy({ name: 'TbSrmRoute' }, where)
     }
-    return new RouteService(repository, {}, skyline, crm, sms, { get: () => 'service-token' })
+    const configService = { get: () => 'service-token' }
+    const utils = new RouteUtilsService(repository, skyline, configService)
+    return new RouteService(repository, {}, skyline, crm, sms, configService, utils)
 }
 
 test('新增路由按传入类型保存，优先级默认 1；编辑不能修改类型', async () => {
@@ -309,4 +312,17 @@ test('新增规则组校验字段与操作符、类型取值、号码段和方�
         { field: 'country', operator: 'in', value: ['1007'] },
         { field: 'prefix', operator: 'prefix', value: ['85291'] }
     ])
+})
+test('路由详情返回路由本身和绑定的通道列表', async () => {
+    const route = { keyId: 1, name: '通用营销', alias: 'LSK1233-MRKT-A001', type: 'MRKT', priority: 1, status: 'enable' }
+    const service = createService(createManager({ TbSrmRoute: [route] }))
+    const channels = [{ keyId: 9, routeKeyId: 1, channelKeyId: 11, priority: 1, weight: 100, status: 'enable', active: true, ratio: 100 }]
+    service.routeUtilsService.findRouteChannels = async routeKeyIds => {
+        assert.deepEqual(routeKeyIds, [1])
+        return channels
+    }
+    service.skylineFeignClient = { httpBaseSkylineColumnCountryResolver: async () => [] }
+    const detail = await service.httpBaseSrmRouteResolver({ keyId: 1 })
+    assert.equal(detail.alias, 'LSK1233-MRKT-A001')
+    assert.deepEqual(detail.channels, channels)
 })

@@ -554,7 +554,6 @@ test('按方向和归属人查询可绑定端口：不分页，附带设备，�
     assert.equal(list[0].simbankOptions.name, '昊天科技-澜沧')
     assert.equal(list[0].showName, 'SSK1233SMSA002 - 端口[1]')
     assert.deepEqual(calls.find(([sql]) => sql.includes('t.imei LIKE'))[1], { vague: '%+86138%' })
-
 })
 
 test('归属人名下没有设备时直接返回空列表', async () => {
