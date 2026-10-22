@@ -107,9 +107,11 @@ export class ChannelService {
         })
     }
 
-    /** 通道详情。 */
-    public async httpBaseSrmChannelResolver(input: ChannelDto.ChannelKeyDto): Promise<Schema.TbSrmChannel> {
-        return this.channelUtilsService.findChannelRequired(this.repository.manager, input.keyId)
+    /** 通道详情：附带该通道已绑定的端口列表。 */
+    public async httpBaseSrmChannelResolver(input: ChannelDto.ChannelKeyDto): Promise<ChannelDto.ChannelResolverResponseDto> {
+        return await this.channelUtilsService.findChannelRequired(this.repository.manager, input.keyId).then(async channel => {
+            return { ...channel, list: await this.channelUtilsService.findChannelPorts(channel.keyId) }
+        })
     }
 
     /** 通道分页：附带端口数、引用路由数、方向和归属人。 */

@@ -6,7 +6,10 @@ const { ChannelUtilsService } = require('../dist/modules/channel/channel.utils.s
 const principal = { uid: '30001', number: '1024' }
 
 function createService(manager, overrides = {}) {
-    const repository = { manager: { transaction: async callback => callback(manager), ...overrides.manager }, ...overrides.repository }
+    const repository = {
+        manager: { ...manager, transaction: async callback => callback(manager), ...overrides.manager },
+        ...overrides.repository
+    }
     const utils = new ChannelUtilsService(
         repository,
         overrides.portRepository ?? {},
@@ -177,4 +180,24 @@ test('启用中的通道不能停用到一个启用端口都不剩', async () =>
         () => createService(manager).httpBaseSrmUpdateChannelPort(principal, { keyId: 5, weight: 1, status: 'disable' }),
         /至少保留一个启用端口/
     )
+})
+test('通道详情返回通道本身和按 channelKeyId 查询到的绑定端口', async () => {
+    const binds = [
+        { keyId: 1, channelKeyId: 10, portKeyId: 1002401, simbankKeyId: 100202, weight: 1, status: 'enable' },
+        { keyId: 2, channelKeyId: 10, portKeyId: 1002402, simbankKeyId: 100202, weight: 2, status: 'disable' }
+    ]
+    const manager = {
+        findOneBy: async (entity, where) =>
+            entity.name === 'TbSrmChannel' && where.keyId === 10 ? { keyId: 10, alias: 'TSK1024-MRKT-A001', status: 'enable' } : null
+    }
+    const service = createService(manager)
+    let queriedChannelKeyId
+    service.channelUtilsService.findChannelPorts = async channelKeyId => {
+        queriedChannelKeyId = channelKeyId
+        return binds
+    }
+    const detail = await service.httpBaseSrmChannelResolver({ keyId: 10 })
+    assert.equal(queriedChannelKeyId, 10)
+    assert.equal(detail.alias, 'TSK1024-MRKT-A001')
+    assert.deepEqual(detail.list, binds)
 })

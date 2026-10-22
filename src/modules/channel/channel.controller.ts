@@ -60,7 +60,7 @@ export class ChannelController {
     @ApiServiceDecorator(Get('resolve'), {
         operation: { summary: '获取通道详情' },
         request: { source: 'query', type: ChannelDto.ChannelKeyDto },
-        response: { type: Schema.TbSrmChannelDto, description: '通道详情' }
+        response: { type: ChannelDto.ChannelResolverResponseDto, description: '通道详情（含绑定的端口）' }
     })
     public async httpBaseSrmChannelResolver(@Query() input: ChannelDto.ChannelKeyDto) {
         return this.channelService.httpBaseSrmChannelResolver(input)

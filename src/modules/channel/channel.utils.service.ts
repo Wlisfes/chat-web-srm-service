@@ -137,6 +137,15 @@ export class ChannelUtilsService {
             return { list, total }
         })
     }
+
+    /** 查询通道全部绑定的端口，不分页；供通道详情使用。 */
+    public async findChannelPorts(channelKeyId: number): Promise<Schema.TbSrmChannelPort[]> {
+        return this.portRepository.find({
+            where: { channelKeyId },
+            order: { simbankKeyId: 'ASC', portKeyId: 'ASC' }
+        })
+    }
+
     /** 批量还原通道列表里的端口统计，供列表返回。 */
     public async findChannelPortStats(keyIds: number[]): Promise<{
         ports: Array<Pick<Schema.TbSrmChannelPort, 'channelKeyId' | 'status'>>

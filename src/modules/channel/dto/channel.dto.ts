@@ -113,3 +113,9 @@ export class ChannelPortPageResponseDto extends PageResponseDataDto {
     @ApiProperty({ description: '通道端口列表', type: [ChannelPortColumnResponseDto] })
     list: ChannelPortColumnResponseDto[]
 }
+
+/** 通道详情响应：GET /channel/resolve；附带该通道已绑定的端口。 */
+export class ChannelResolverResponseDto extends Schema.TbSrmChannelDto {
+    @ApiProperty({ description: '绑定的端口列表', type: [Schema.TbSrmChannelPortDto] })
+    list: Schema.TbSrmChannelPortDto[]
+}
