@@ -101,7 +101,14 @@ export class RoutePageResponseDto extends PageResponseDataDto {
 }
 
 /** 路由下拉项：GET /route/select。 */
-export class RouteSelectResponseDto extends PickType(Schema.TbSrmRouteDto, ['keyId', 'name', 'alias', 'type', 'priority', 'status'] as const) {}
+export class RouteSelectResponseDto extends PickType(Schema.TbSrmRouteDto, [
+    'keyId',
+    'name',
+    'alias',
+    'type',
+    'priority',
+    'status'
+] as const) {}
 
 /* ------------------------------ 规则组 ------------------------------ */
 
@@ -131,12 +138,12 @@ export class RouteRuleResponseDto extends Schema.TbSrmRouteRuleDto {
 
 /* ------------------------------ 路由通道 ------------------------------ */
 
-/** 路由加入通道入参：POST /route/channel/create；路由可以挂不同方向和类型的通道。 */
-export class CreateRouteChannelDto extends IntersectionType(
+/** 更新路由通道绑定入参：POST /route/channel/bind；以本次提交的集合为准，路由可以挂不同方向和类型的通道。 */
+export class BindRouteChannelDto extends IntersectionType(
     PickType(Schema.TbSrmRouteChannelDto, ['routeKeyId'] as const),
     PartialType(PickType(Schema.TbSrmRouteChannelDto, ['priority', 'weight', 'status'] as const))
 ) {
-    @ApiProperty({ description: '通道ID集合：可一次加入多个通道，已在路由中的通道会被拒绝', type: Number, isArray: true, example: [1001] })
+    @ApiProperty({ description: '通道ID集合：以本次提交的集合为准更新路由通道绑定', type: Number, isArray: true, example: [1001] })
     @IsArray({ message: '通道集合必须是数组' })
     @ArrayNotEmpty({ message: '请选择通道' })
     @ArrayMaxSize(100, { message: '单次最多加入100个通道' })
@@ -305,6 +312,9 @@ export class RoutePreviewResponseDto {
     @ApiProperty({ description: '是否回落到其他同类型路由', example: false })
     fallback: boolean
 
-    @ApiProperty({ description: '按顺序尝试的路由：绑定的同类型路由在前，其他同类型路由按优先级在后，直到命中为止', type: [RoutePreviewStepDto] })
+    @ApiProperty({
+        description: '按顺序尝试的路由：绑定的同类型路由在前，其他同类型路由按优先级在后，直到命中为止',
+        type: [RoutePreviewStepDto]
+    })
     steps: RoutePreviewStepDto[]
 }

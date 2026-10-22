@@ -89,7 +89,11 @@ export class RouteService {
 
     /** 路由详情。 */
     public async httpBaseSrmRouteResolver(input: RouteDto.RouteKeyDto): Promise<Schema.TbSrmRoute> {
-        return this.findRouteRequired(this.repository.manager, input.keyId)
+        return this.findRouteRequired(this.repository.manager, input.keyId).then(async route => {
+            return {
+                ...route
+            }
+        })
     }
 
     /** 路由分页：按短信类型和优先级排序，附带规则摘要、通道数、覆盖的方向和类型、绑定短信应用数。 */
@@ -132,7 +136,11 @@ export class RouteService {
                 }
             })
             await Promise.all([
-                feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, rows, ['ownerUserUid', 'createBy', 'modifyBy']),
+                feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, rows, [
+                    'ownerUserUid',
+                    'createBy',
+                    'modifyBy'
+                ]),
                 feign.fetchAppendSkylineCountryOptions(
                     this.skylineFeignClient,
                     this.configService,
@@ -209,36 +217,42 @@ export class RouteService {
 
     /* ------------------------------ 路由通道 ------------------------------ */
 
-    /** 路由批量加入通道：通道可以是不同方向和类型，同一路由不能重复加入同一通道。 */
-    public async httpBaseSrmCreateRouteChannel(
+    /**
+     * 更新路由通道绑定：以本次提交的通道集合为准，保留已选通道、移除未选通道、新增新选通道。
+     * 通道可以是不同方向和类型；已选通道保留原有优先级、权重和状态。
+     */
+    public async httpBaseSrmBindRouteChannel(
         principal: AuthPrincipal,
-        input: RouteDto.CreateRouteChannelDto
+        input: RouteDto.BindRouteChannelDto
     ): Promise<RouteDto.RouteCountResponseDto> {
         return this.repository.manager.transaction(async manager => {
             const route = await this.findRouteRequired(manager, input.routeKeyId)
             const channelKeyIds = [...new Set(input.channelKeyIds)]
             const channels = await manager.find(Schema.TbSrmChannel, { where: { keyId: In(channelKeyIds) } })
             if (channels.length !== channelKeyIds.length) throw new NotFoundException('部分通道不存在')
-            const existed = await manager.find(Schema.TbSrmRouteChannel, {
-                where: { routeKeyId: route.keyId, channelKeyId: In(channelKeyIds) }
-            })
-            if (existed.length > 0) {
-                const aliases = channels.filter(item => existed.some(link => link.channelKeyId === item.keyId)).map(item => item.alias)
-                throw new ConflictException(`通道已在该路由中：${aliases.join('、')}`)
+            const existing = await manager.find(Schema.TbSrmRouteChannel, { where: { routeKeyId: route.keyId } })
+            const selected = new Set(channelKeyIds)
+            const removed = existing.filter(item => !selected.has(item.channelKeyId))
+            if (removed.length > 0) {
+                await manager.delete(Schema.TbSrmRouteChannel, { keyId: In(removed.map(item => item.keyId)) })
             }
-            await manager.insert(
-                Schema.TbSrmRouteChannel,
-                channels.map(channel => ({
-                    routeKeyId: route.keyId,
-                    channelKeyId: channel.keyId,
-                    priority: input.priority ?? 1,
-                    weight: input.weight ?? 100,
-                    status: input.status ?? Schema.TbSrmRouteChannelStatus.ENABLE,
-                    createBy: principal.uid,
-                    modifyBy: principal.uid
-                }))
-            )
-            return { count: channels.length }
+            const existed = new Set(existing.map(item => item.channelKeyId))
+            const added = channels.filter(channel => !existed.has(channel.keyId))
+            if (added.length > 0) {
+                await manager.insert(
+                    Schema.TbSrmRouteChannel,
+                    added.map(channel => ({
+                        routeKeyId: route.keyId,
+                        channelKeyId: channel.keyId,
+                        priority: input.priority ?? 1,
+                        weight: input.weight ?? 100,
+                        status: input.status ?? Schema.TbSrmRouteChannelStatus.ENABLE,
+                        createBy: principal.uid,
+                        modifyBy: principal.uid
+                    }))
+                )
+            }
+            return { count: channelKeyIds.length }
         })
     }
 
@@ -451,10 +465,7 @@ export class RouteService {
             const allowed = condition.field === PREFIX ? [STARTS, NOT_PREFIX] : [IN, NOT_IN]
             if (!allowed.includes(condition.operator))
                 throw new BadRequestException(`条件字段 ${condition.field} 不支持操作符 ${condition.operator}`)
-            if (
-                condition.field === TYPE &&
-                value.some(item => !Object.values(Schema.TbSmsAppType).includes(item as Schema.TbSmsAppType))
-            ) {
+            if (condition.field === TYPE && value.some(item => !Object.values(Schema.TbSmsAppType).includes(item as Schema.TbSmsAppType))) {
                 throw new BadRequestException('短信类型取值只能是 MRKT、NTFY、SOTP')
             }
             if (condition.field === PREFIX && value.some(item => !/^\d{1,15}$/.test(item))) {
@@ -588,7 +599,14 @@ export class RouteService {
 
     /** 路由摘要。 */
     private pickRoute(route: Schema.TbSrmRoute): RouteDto.RouteSelectResponseDto {
-        return { keyId: route.keyId, name: route.name, alias: route.alias, type: route.type, priority: route.priority, status: route.status }
+        return {
+            keyId: route.keyId,
+            name: route.name,
+            alias: route.alias,
+            type: route.type,
+            priority: route.priority,
+            status: route.status
+        }
     }
 
     /** 校验路由存在。 */
