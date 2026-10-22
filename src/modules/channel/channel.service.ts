@@ -1,22 +1,25 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
-import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { DataBaseService, EntityManager, In, InjectRepository, Not, Repository } from '@wlisfes/chat-web-base-schema/database'
-import { PageResult, fetchResolver, fetchUntiePagination, isNotEmpty } from '@wlisfes/chat-web-base-schema/utils'
+import { fetchUntiePagination, fetchVagueKeyword, fetchVagueNumberKeyword } from '@wlisfes/chat-web-base-schema/utils'
+import { PageResult, fetchResolver, isNotEmpty } from '@wlisfes/chat-web-base-schema/utils'
+import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
+import { ConfigService } from '@nestjs/config'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 import * as ChannelDto from '@/modules/channel/dto/channel.dto'
+import { SimbankUtilsService } from '@/modules/simbank/simbank.utils.service'
+import { ChannelUtilsService } from '@/modules/channel/channel.utils.service'
 
 @Injectable()
 export class ChannelService {
     constructor(
         @InjectRepository(Schema.TbSrmChannel) private readonly repository: Repository<Schema.TbSrmChannel>,
-        @InjectRepository(Schema.TbSrmChannelPort) private readonly portRepository: Repository<Schema.TbSrmChannelPort>,
         @InjectRepository(Schema.TbSrmSimbankPort) private readonly simbankPortRepository: Repository<Schema.TbSrmSimbankPort>,
-        @InjectRepository(Schema.TbSrmSimbank) private readonly simbankRepository: Repository<Schema.TbSrmSimbank>,
         private readonly database: DataBaseService,
         private readonly skylineFeignClient: feign.FeignClientSkylineManager,
-        private readonly configService: ConfigService
+        private readonly configService: ConfigService,
+        private readonly simbankUtilsService: SimbankUtilsService,
+        private readonly channelUtilsService: ChannelUtilsService
     ) {}
 
     /** 通道静态枚举。 */
@@ -30,11 +33,11 @@ export class ChannelService {
 
     /** 新增通道：别名按 TSK + 归属人工号 + 类型 + 分段序号自动生成，归属人默认当前登录人，新建通道默认停用。 */
     public async httpBaseSrmCreateChannel(principal: AuthPrincipal, input: ChannelDto.CreateChannelDto): Promise<Schema.TbSrmChannel> {
-        const country = await this.findCountryRequired(input.countryKeyId)
+        const country = await this.channelUtilsService.findCountryRequired(input.countryKeyId)
         const ownerUserUid = input.ownerUserUid ?? principal.uid
-        const ownerNumber = await this.resolveOwnerNumber(principal, ownerUserUid)
+        const ownerNumber = await this.channelUtilsService.resolveOwnerNumber(principal, ownerUserUid)
         return this.repository.manager.transaction(async manager => {
-            const alias = await this.createAlias(manager, ownerNumber, input.type)
+            const alias = await this.channelUtilsService.createAlias(manager, ownerNumber, input.type)
             return manager.save(
                 manager.create(Schema.TbSrmChannel, {
                     alias,
@@ -56,8 +59,8 @@ export class ChannelService {
     /** 编辑通道：别名、方向、类型不可修改；可调整名称、归属人和发送参数。 */
     public async httpBaseSrmUpdateChannel(principal: AuthPrincipal, input: ChannelDto.UpdateChannelDto): Promise<Schema.TbSrmChannel> {
         return this.repository.manager.transaction(async manager => {
-            const channel = await this.findChannelRequired(manager, input.keyId)
-            if (input.ownerUserUid !== channel.ownerUserUid) await this.assertUserExists(input.ownerUserUid)
+            const channel = await this.channelUtilsService.findChannelRequired(manager, input.keyId)
+            if (input.ownerUserUid !== channel.ownerUserUid) await this.channelUtilsService.assertUserExists(input.ownerUserUid)
             manager.merge(Schema.TbSrmChannel, channel, {
                 name: input.name.trim(),
                 ownerUserUid: input.ownerUserUid,
@@ -76,7 +79,7 @@ export class ChannelService {
         input: ChannelDto.UpdateChannelStatusDto
     ): Promise<Schema.TbSrmChannel> {
         return this.repository.manager.transaction(async manager => {
-            const channel = await this.findChannelRequired(manager, input.keyId)
+            const channel = await this.channelUtilsService.findChannelRequired(manager, input.keyId)
             if (input.status === Schema.TbSrmChannelStatus.ENABLE) {
                 const enabled = await manager.countBy(Schema.TbSrmChannelPort, {
                     channelKeyId: channel.keyId,
@@ -90,17 +93,15 @@ export class ChannelService {
         })
     }
 
-    /** 删除通道：必须先停用、解绑全部端口并从路由中移除。 */
+    /** 删除通道：必须先停用并从路由中移除；通道绑定的端口在同一事务内一起解绑。 */
     public async httpBaseSrmDeleteChannel(input: ChannelDto.ChannelKeyDto): Promise<{ success: boolean }> {
         return this.repository.manager.transaction(async manager => {
-            const channel = await this.findChannelRequired(manager, input.keyId)
+            const channel = await this.channelUtilsService.findChannelRequired(manager, input.keyId)
             if (channel.status === Schema.TbSrmChannelStatus.ENABLE) throw new ConflictException('请先停用通道')
             if (await manager.existsBy(Schema.TbSrmRouteChannel, { channelKeyId: channel.keyId })) {
                 throw new ConflictException('通道仍被路由使用，请先从路由中移除')
             }
-            if (await manager.existsBy(Schema.TbSrmChannelPort, { channelKeyId: channel.keyId })) {
-                throw new ConflictException('通道仍绑定端口，请先解绑')
-            }
+            await manager.delete(Schema.TbSrmChannelPort, { channelKeyId: channel.keyId })
             await manager.delete(Schema.TbSrmChannel, { keyId: channel.keyId })
             return { success: true }
         })
@@ -108,7 +109,7 @@ export class ChannelService {
 
     /** 通道详情。 */
     public async httpBaseSrmChannelResolver(input: ChannelDto.ChannelKeyDto): Promise<Schema.TbSrmChannel> {
-        return this.findChannelRequired(this.repository.manager, input.keyId)
+        return this.channelUtilsService.findChannelRequired(this.repository.manager, input.keyId)
     }
 
     /** 通道分页：附带端口数、引用路由数、方向和归属人。 */
@@ -125,15 +126,8 @@ export class ChannelService {
             qb.skip((page - 1) * size).take(size)
             const [list, total] = await qb.getManyAndCount()
             const keyIds = list.map(item => item.keyId)
-            const [ports, routes] = keyIds.length
-                ? await Promise.all([
-                      this.portRepository.find({ select: { channelKeyId: true, status: true }, where: { channelKeyId: In(keyIds) } }),
-                      this.repository.manager.find(Schema.TbSrmRouteChannel, {
-                          select: { channelKeyId: true },
-                          where: { channelKeyId: In(keyIds) }
-                      })
-                  ])
-                : [[], []]
+            const { ports, routes } = await this.channelUtilsService.findChannelPortStats(keyIds)
+
             const rows = list.map(item => ({
                 ...item,
                 portCount: ports.filter(port => port.channelKeyId === item.keyId).length,
@@ -165,7 +159,7 @@ export class ChannelService {
     /** 批量绑定端口：端口必须存在、已激活且激活方向与通道方向一致，且未绑定任何通道。 */
     public async httpBaseSrmBindChannelPort(principal: AuthPrincipal, input: ChannelDto.BindChannelPortDto): Promise<{ count: number }> {
         return this.repository.manager.transaction(async manager => {
-            const channel = await this.findChannelRequired(manager, input.channelKeyId)
+            const channel = await this.channelUtilsService.findChannelRequired(manager, input.channelKeyId)
             const portKeyIds = [...new Set(input.portKeyIds)]
             const ports = await manager.find(Schema.TbSrmSimbankPort, { where: { keyId: In(portKeyIds) } })
             if (ports.length !== portKeyIds.length) throw new NotFoundException('部分端口不存在')
@@ -205,30 +199,12 @@ export class ChannelService {
             const binding = await manager.findOneBy(Schema.TbSrmChannelPort, { keyId: input.keyId })
             if (!binding) throw new NotFoundException('端口绑定不存在')
             if (input.status === Schema.TbSrmChannelPortStatus.DISABLE && binding.status === Schema.TbSrmChannelPortStatus.ENABLE) {
-                await this.assertChannelKeepsPort(manager, binding.channelKeyId, [binding.keyId])
+                await this.channelUtilsService.assertChannelKeepsPort(manager, binding.channelKeyId, [binding.keyId])
             }
             binding.weight = input.weight
             binding.status = input.status
             binding.modifyBy = principal.uid
             return manager.save(binding)
-        })
-    }
-
-    /** 批量解绑端口；启用中的通道不能解绑到一个启用端口都不剩。 */
-    public async httpBaseSrmUnbindChannelPort(input: ChannelDto.UnbindChannelPortDto): Promise<{ count: number }> {
-        return this.repository.manager.transaction(async manager => {
-            const keyIds = [...new Set(input.keyIds)]
-            const bindings = await manager.find(Schema.TbSrmChannelPort, { where: { keyId: In(keyIds) } })
-            if (bindings.length === 0) return { count: 0 }
-            for (const channelKeyId of new Set(bindings.map(item => item.channelKeyId))) {
-                await this.assertChannelKeepsPort(
-                    manager,
-                    channelKeyId,
-                    bindings.filter(item => item.channelKeyId === channelKeyId).map(item => item.keyId)
-                )
-            }
-            await manager.delete(Schema.TbSrmChannelPort, { keyId: In(bindings.map(item => item.keyId)) })
-            return { count: bindings.length }
         })
     }
 
@@ -238,214 +214,71 @@ export class ChannelService {
     ): Promise<PageResult<ChannelDto.ChannelPortColumnResponseDto>> {
         const { page, size } = fetchUntiePagination(input)
         const keyword = input.name?.trim()
-        const keywordPortKeyIds = keyword ? await this.findPortKeyIdsByKeyword(keyword) : undefined
+        const keywordPortKeyIds = keyword ? await this.channelUtilsService.findPortKeyIdsByKeyword(keyword) : undefined
         if (keywordPortKeyIds?.length === 0) return fetchResolver({ page, size, total: 0, list: [] })
-        return this.database.builder(this.portRepository, async qb => {
-            qb.where('t.channelKeyId = :channelKeyId', { channelKeyId: input.channelKeyId })
-            if (isNotEmpty(input.status)) qb.andWhere('t.status = :status', { status: input.status })
-            if (keywordPortKeyIds) qb.andWhere('t.portKeyId IN (:...keywordPortKeyIds)', { keywordPortKeyIds })
-            qb.orderBy('t.simbankKeyId', 'ASC').addOrderBy('t.portKeyId', 'ASC')
-            qb.skip((page - 1) * size).take(size)
-            const [list, total] = await qb.getManyAndCount()
-            const ports = list.length
-                ? await this.simbankPortRepository.find({ where: { keyId: In(list.map(item => item.portKeyId)) } })
-                : []
-            const simbanks = list.length
-                ? await this.simbankRepository.find({ where: { keyId: In([...new Set(list.map(item => item.simbankKeyId))]) } })
-                : []
-            return fetchResolver({
-                page,
-                size,
-                total,
-                list: list.map(item => ({
-                    ...item,
-                    portOptions: ports.find(port => port.keyId === item.portKeyId),
-                    simbankOptions: simbanks.find(simbank => simbank.keyId === item.simbankKeyId)
-                }))
+        return this.channelUtilsService
+            .findChannelPortPage({ page, size, ...input }, keywordPortKeyIds, this.database)
+            .then(async ({ list, total }) => {
+                const { ports, simbanks } = await this.channelUtilsService.findChannelPortSnapshots(
+                    list.map(item => item.portKeyId),
+                    [...new Set(list.map(item => item.simbankKeyId))]
+                )
+                return fetchResolver({
+                    page,
+                    size,
+                    total,
+                    list: list.map(item => ({
+                        ...item,
+                        portOptions: ports.find(port => port.keyId === item.portKeyId),
+                        simbankOptions: simbanks.find(simbank => simbank.keyId === item.simbankKeyId)
+                    }))
+                })
             })
-        })
     }
 
-    /** 可绑定端口：未绑定任何通道、已激活，且激活方向、设备归属人与通道一致。 */
-    public async httpBaseSrmAvailableChannelPort(
-        input: ChannelDto.ListAvailablePortDto
-    ): Promise<PageResult<ChannelDto.OwnerCountryPortItemDto>> {
-        const channel = await this.findChannelRequired(this.repository.manager, input.channelKeyId)
-        return this.findOwnerCountryPorts(
-            { countryKeyId: channel.countryKeyId, ownerUserUid: channel.ownerUserUid, page: input.page, size: input.size },
-            input.simbankKeyId
-        )
-    }
-
-    /** 按激活方向和设备归属人查询可绑定端口，供通道绑定下拉使用。 */
-    public async httpBaseSrmSelectChannelPort(
-        input: ChannelDto.ListOwnerCountryPortDto
-    ): Promise<PageResult<ChannelDto.OwnerCountryPortItemDto>> {
-        return this.findOwnerCountryPorts(input)
-    }
-
-    /** 未绑定、已激活，且激活方向和设备归属人匹配的端口。 */
-    private async findOwnerCountryPorts(
-        input: Pick<ChannelDto.ListOwnerCountryPortDto, 'countryKeyId' | 'ownerUserUid' | 'page' | 'size'>,
-        simbankKeyId?: number
-    ): Promise<PageResult<ChannelDto.OwnerCountryPortItemDto>> {
-        const { page, size } = fetchUntiePagination(input)
+    /**
+     * 按激活方向和设备归属人查询可绑定端口，供通道绑定下拉使用；不分页，返回全部匹配端口。
+     * 只返回已激活、已插卡、尚未绑定任何通道的端口；vague 模糊匹配 SIM、IMEI、ICCID。
+     */
+    public async httpBaseSrmSelectChannelPort(input: ChannelDto.ListOwnerCountryPortDto) {
+        const { simbanks, simbankOptions } = await this.simbankUtilsService.findByOwnerUserUid(input.ownerUserUid)
+        if (simbanks.length === 0) {
+            return []
+        }
         return this.database.builder(this.simbankPortRepository, async qb => {
-            qb.innerJoin(Schema.TbSrmSimbank, 'simbank', 'simbank.keyId = t.simbankKeyId')
-            qb.where('NOT EXISTS (SELECT 1 FROM tb_srm_channel_port cp WHERE cp.port_key_id = t.key_id)')
-            qb.andWhere('t.activateStatus = :activateStatus', {
-                activateStatus: Schema.TbSrmSimbankPortActivateStatus.ACTIVE
+            qb.where('t.simbankKeyId IN (:...simbankKeyIds)', {
+                simbankKeyIds: simbanks.map(item => item.keyId)
             })
             qb.andWhere('t.countryKeyId = :countryKeyId', {
                 countryKeyId: input.countryKeyId
             })
-            qb.andWhere('simbank.ownerUserUid = :ownerUserUid', {
-                ownerUserUid: input.ownerUserUid
+            qb.andWhere('t.activateStatus = :activateStatus', {
+                activateStatus: Schema.TbSrmSimbankPortActivateStatus.ACTIVE
             })
-            if (isNotEmpty(simbankKeyId)) {
-                qb.andWhere('t.simbankKeyId = :simbankKeyId', { simbankKeyId })
+            qb.andWhere('t.insertStatus = :insertStatus', {
+                insertStatus: Schema.TbSrmSimbankPortInsertStatus.INSERTED
+            })
+            const vague = fetchVagueKeyword(input.vague)
+            if (vague) {
+                qb.andWhere('(t.sim LIKE :simVague OR t.imei LIKE :vague OR t.iccid LIKE :vague)', {
+                    vague: `%${vague}%`,
+                    simVague: `%${fetchVagueNumberKeyword(input.vague)}%`
+                })
             }
+            await this.database.selection(qb, [
+                ['t', ['keyId', 'port', 'sim', 'imei', 'iccid', 'countryKeyId', 'simbankKeyId', 'insertStatus', 'activateStatus', 'status']]
+            ])
             qb.orderBy('t.simbankKeyId', 'DESC').addOrderBy('t.port', 'ASC')
-            qb.skip((page - 1) * size).take(size)
-            const [list, total] = await qb.getManyAndCount()
-            const simbankKeyIds = [...new Set(list.map(item => item.simbankKeyId))]
-            const simbanks = simbankKeyIds.length
-                ? await this.simbankRepository.find({
-                      select: { keyId: true, alias: true, name: true },
-                      where: { keyId: In(simbankKeyIds) }
-                  })
-                : []
-            return fetchResolver({
-                page,
-                size,
-                total,
-                list: list.map(item => {
-                    const simbank = simbanks.find(device => device.keyId === item.simbankKeyId)
+            return await qb.getMany().then(items => {
+                return items.map(item => {
+                    const simbank = simbankOptions.get(item.simbankKeyId)
                     return {
-                        keyId: item.keyId,
-                        port: item.port,
-                        sim: item.sim,
-                        simbankKeyId: item.simbankKeyId,
-                        countryKeyId: item.countryKeyId,
-                        label: [simbank?.alias, `端口${item.port}`, item.sim].filter(Boolean).join(' / ')
+                        ...item,
+                        simbankOptions: simbank,
+                        showName: [simbank.alias, `端口[${item.port}]`].filter(Boolean).join(' - ')
                     }
                 })
             })
         })
-    }
-
-    /** 校验通道存在。 */
-    private async findChannelRequired(manager: EntityManager, keyId: number): Promise<Schema.TbSrmChannel> {
-        const channel = await manager.findOneBy(Schema.TbSrmChannel, { keyId })
-        if (!channel) throw new NotFoundException('通道不存在')
-        return channel
-    }
-
-    /** 启用中的通道在停用或解绑端口后，必须还剩至少一个启用端口。 */
-    private async assertChannelKeepsPort(manager: EntityManager, channelKeyId: number, removingKeyIds: number[]): Promise<void> {
-        const channel = await manager.findOneBy(Schema.TbSrmChannel, { keyId: channelKeyId })
-        if (channel?.status !== Schema.TbSrmChannelStatus.ENABLE) return
-        const remaining = await manager.countBy(Schema.TbSrmChannelPort, {
-            channelKeyId,
-            status: Schema.TbSrmChannelPortStatus.ENABLE,
-            keyId: Not(In(removingKeyIds))
-        })
-        if (remaining === 0) throw new ConflictException(`通道【${channel.alias}】启用中，至少保留一个启用端口，或先停用通道`)
-    }
-
-    /**
-     * 生成通道别名：TSK + 归属人工号 + 类型 + 分段序号，例如 TSK1233-MRKT-A001。
-     * 序号规则与短信应用别名一致：同一工号同一类型内 A001-Z999，用完后进入 AA01-ZZ99。
-     */
-    private async createAlias(manager: EntityManager, number: string, type: Schema.TbSmsAppType): Promise<string> {
-        const prefix = `TSK${number}-${type}-`
-        const rows = await manager
-            .createQueryBuilder(Schema.TbSrmChannel, 't')
-            .setLock('pessimistic_write')
-            .select('t.alias')
-            .where('t.alias LIKE :prefix', { prefix: `${prefix}%` })
-            .getMany()
-        const max = rows.reduce((value, row) => Math.max(value, this.parseAliasSequence(row.alias, prefix)), 0)
-        const alias = `${prefix}${this.formatAliasSequence(max + 1)}`
-        if (alias.length > 32) throw new BadRequestException('通道别名超过32位')
-        return alias
-    }
-
-    /** 取归属人工号：当前登录人直接用工号，其他人通过 Skyline 账号还原。 */
-    private async resolveOwnerNumber(principal: AuthPrincipal, ownerUserUid: string): Promise<string> {
-        if (ownerUserUid === principal.uid) return this.requireEmployeeNumber(principal.number, '当前登录账号')
-        const [user] = await this.skylineFeignClient.httpBaseSkylineColumnUserResolver(this.authorization(), { uids: [ownerUserUid] })
-        if (!user) throw new BadRequestException('归属人不存在')
-        return this.requireEmployeeNumber(user.number, '归属人')
-    }
-
-    private requireEmployeeNumber(number: string | undefined, label: string): string {
-        const userNumber = number?.trim()
-        if (!userNumber || !/^[A-Za-z0-9]+$/.test(userNumber)) throw new BadRequestException(`${label}缺少有效工号，无法生成通道别名`)
-        return userNumber
-    }
-
-    /** 把别名尾部序号转换为连续序号；不符合当前规则的历史别名返回 0。 */
-    private parseAliasSequence(alias: string, prefix: string): number {
-        const code = alias?.startsWith(prefix) ? alias.slice(prefix.length) : ''
-        const single = /^([A-Z])(\d{3})$/.exec(code)
-        if (single && Number(single[2]) > 0) return (single[1].charCodeAt(0) - 65) * 999 + Number(single[2])
-        const double = /^([A-Z])([A-Z])(\d{2})$/.exec(code)
-        if (double && Number(double[3]) > 0) {
-            const group = (double[1].charCodeAt(0) - 65) * 26 + double[2].charCodeAt(0) - 65
-            return 26 * 999 + group * 99 + Number(double[3])
-        }
-        return 0
-    }
-
-    /** 把连续序号格式化为分段序号：A001-Z999，之后 AA01-ZZ99。 */
-    private formatAliasSequence(sequence: number): string {
-        const singleCapacity = 26 * 999
-        const capacity = singleCapacity + 26 * 26 * 99
-        if (!Number.isInteger(sequence) || sequence < 1 || sequence > capacity) {
-            throw new ConflictException('当前工号该类型通道别名序号已用完')
-        }
-        if (sequence <= singleCapacity) {
-            const index = sequence - 1
-            return `${String.fromCharCode(65 + Math.floor(index / 999))}${String((index % 999) + 1).padStart(3, '0')}`
-        }
-        const index = sequence - singleCapacity - 1
-        const group = Math.floor(index / 99)
-        return `${String.fromCharCode(65 + Math.floor(group / 26), 65 + (group % 26))}${String((index % 99) + 1).padStart(2, '0')}`
-    }
-
-    /** 查询方向，通道必须绑定已存在的方向。 */
-    private async findCountryRequired(countryKeyId: number): Promise<feign.SkylineCountrySummaryResponseDto> {
-        const authorization = feign.resolveFeignServiceAuthorization(this.configService)
-        const [country] = await this.skylineFeignClient.httpBaseSkylineColumnCountryResolver(authorization, { keyIds: [countryKeyId] })
-        if (!country) throw new BadRequestException('方向不存在')
-        return country
-    }
-
-    private authorization(): string {
-        return feign.resolveFeignServiceAuthorization(this.configService)
-    }
-
-    /** 校验归属人账号存在。 */
-    private async assertUserExists(uid: string): Promise<void> {
-        const authorization = this.authorization()
-        const [user] = await this.skylineFeignClient.httpBaseSkylineColumnUserResolver(authorization, { uids: [uid] })
-        if (!user) throw new BadRequestException('归属人不存在')
-    }
-
-    /** 按关键词查端口主键：SIM、ICCID 匹配端口，名称或别名匹配设备。 */
-    private async findPortKeyIdsByKeyword(keyword: string): Promise<number[]> {
-        const like = `%${keyword}%`
-        const simbanks = await this.simbankRepository
-            .createQueryBuilder('t')
-            .select('t.keyId')
-            .where('(t.name LIKE :like OR t.alias LIKE :like)', { like })
-            .getMany()
-        const qb = this.simbankPortRepository
-            .createQueryBuilder('t')
-            .select('t.keyId')
-            .where('(t.sim LIKE :like OR t.iccid LIKE :like)', { like })
-        if (simbanks.length) qb.orWhere('t.simbankKeyId IN (:...simbankKeyIds)', { simbankKeyIds: simbanks.map(item => item.keyId) })
-        return (await qb.getMany()).map(item => item.keyId)
     }
 }

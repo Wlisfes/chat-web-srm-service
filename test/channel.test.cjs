@@ -1,19 +1,28 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const { ChannelService } = require('../dist/modules/channel/channel.service')
+const { ChannelUtilsService } = require('../dist/modules/channel/channel.utils.service')
 
 const principal = { uid: '30001', number: '1024' }
 
 function createService(manager, overrides = {}) {
     const repository = { manager: { transaction: async callback => callback(manager), ...overrides.manager }, ...overrides.repository }
-    return new ChannelService(
+    const utils = new ChannelUtilsService(
         repository,
         overrides.portRepository ?? {},
+        overrides.simbankRepository ?? {},
         overrides.simbankPortRepository ?? {},
-        {},
-        overrides.database ?? {},
         overrides.skyline ?? {},
         { get: () => 'service-token' }
+    )
+    return new ChannelService(
+        repository,
+        overrides.simbankPortRepository ?? {},
+        overrides.database ?? {},
+        overrides.skyline ?? {},
+        { get: () => 'service-token' },
+        overrides.simbankUtils ?? {},
+        utils
     )
 }
 
@@ -80,7 +89,7 @@ test('通道没有启用端口时不能启用', async () => {
     assert.equal(result.status, 'enable')
 })
 
-test('删除通道前必须停用、从路由移除并解绑端口', async () => {
+test('删除通道前必须停用并从路由移除，绑定的端口随通道一起解绑', async () => {
     const enabled = { findOneBy: async () => ({ keyId: 1, status: 'enable' }) }
     await assert.rejects(() => createService(enabled).httpBaseSrmDeleteChannel({ keyId: 1 }), /请先停用通道/)
     const inRoute = {
@@ -88,11 +97,17 @@ test('删除通道前必须停用、从路由移除并解绑端口', async () =>
         existsBy: async entity => entity.name === 'TbSrmRouteChannel'
     }
     await assert.rejects(() => createService(inRoute).httpBaseSrmDeleteChannel({ keyId: 1 }), /仍被路由使用/)
+    const deleted = []
     const hasPort = {
         findOneBy: async () => ({ keyId: 1, status: 'disable' }),
-        existsBy: async entity => entity.name === 'TbSrmChannelPort'
+        existsBy: async entity => entity.name === 'TbSrmChannelPort',
+        delete: async (entity, where) => deleted.push([entity.name, where])
     }
-    await assert.rejects(() => createService(hasPort).httpBaseSrmDeleteChannel({ keyId: 1 }), /仍绑定端口/)
+    assert.deepEqual(await createService(hasPort).httpBaseSrmDeleteChannel({ keyId: 1 }), { success: true })
+    assert.deepEqual(deleted, [
+        ['TbSrmChannelPort', { channelKeyId: 1 }],
+        ['TbSrmChannel', { keyId: 1 }]
+    ])
 })
 
 test('只能绑定已激活且方向与通道一致的端口', async () => {
@@ -150,12 +165,54 @@ test('绑定端口写入设备快照，默认权重 1 并启用', async () => {
         modifyBy: '30001'
     })
 })
-
-test('启用中的通道不能解绑或停用到一个启用端口都不剩', async () => {
+test('启用中的通道不能停用到一个启用端口都不剩', async () => {
     const manager = {
-        find: async () => [{ keyId: 5, channelKeyId: 1 }],
-        findOneBy: async () => ({ keyId: 1, alias: '1024-460-MRKT-01', status: 'enable' }),
+        findOneBy: async entity =>
+            entity.name === 'TbSrmChannelPort'
+                ? { keyId: 5, channelKeyId: 1, status: 'enable' }
+                : { keyId: 1, alias: 'TSK1024-MRKT-A001', status: 'enable' },
         countBy: async () => 0
     }
-    await assert.rejects(() => createService(manager).httpBaseSrmUnbindChannelPort({ keyIds: [5] }), /至少保留一个启用端口/)
+    await assert.rejects(
+        () => createService(manager).httpBaseSrmUpdateChannelPort(principal, { keyId: 5, weight: 1, status: 'disable' }),
+        /至少保留一个启用端口/
+    )
+})
+
+test('可绑定端口不分页，附带所属设备，关键词模糊匹配 SIM、IMEI、ICCID', async () => {
+    const calls = []
+    const qb = {
+        where: (sql, params) => (calls.push([sql, params]), qb),
+        andWhere: (sql, params) => (calls.push([sql, params]), qb),
+        orderBy: () => qb,
+        addOrderBy: () => qb,
+        skip: () => {
+            throw new Error('不应分页')
+        },
+        take: () => {
+            throw new Error('不应分页')
+        },
+        getMany: async () => [
+            { keyId: 1002401, port: 1, sim: '8613800000001', simbankKeyId: 100202, countryKeyId: 1077 },
+            { keyId: 1002402, port: 2, sim: '8613800000002', simbankKeyId: 100202, countryKeyId: 1077 }
+        ]
+    }
+    const database = { builder: async (_repository, callback) => callback(qb), selection: async () => qb }
+    const service = createService({}, { database })
+    const simbank = { keyId: 100202, alias: 'SSK1233SMSA002', name: '昊天科技-澜沧' }
+    service.simbankUtilsService = {
+        findByOwnerUserUid: async () => ({ simbanks: [simbank], simbankOptions: new Map([[simbank.keyId, simbank]]) })
+    }
+    const list = await service.httpBaseSrmSelectChannelPort({ countryKeyId: 1077, ownerUserUid: '30001', vague: ' +86138 ' })
+    assert.equal(list.length, 2)
+    assert.equal(list[0].simbankOptions.name, '昊天科技-澜沧')
+    assert.equal(list[0].simbankOptions.alias, 'SSK1233SMSA002')
+    const search = calls.find(([sql]) => sql.includes('t.imei LIKE'))
+    assert.deepEqual(search[1], { vague: '%+86138%', simVague: '%86138%' })
+})
+
+test('归属人名下没有设备时直接返回空列表', async () => {
+    const service = createService({}, { database: { builder: async () => assert.fail('不应查询端口') } })
+    service.simbankUtilsService = { findByOwnerUserUid: async () => ({ simbanks: [], simbankOptions: new Map() }) }
+    assert.deepEqual(await service.httpBaseSrmSelectChannelPort({ countryKeyId: 1077, ownerUserUid: '30001' }), [])
 })

@@ -104,15 +104,6 @@ export class ChannelController {
         return this.channelService.httpBaseSrmUpdateChannelPort(principal, input)
     }
 
-    @ApiServiceDecorator(Post('port/unbind'), {
-        operation: { summary: '通道批量解绑端口' },
-        request: { source: 'body', type: ChannelDto.UnbindChannelPortDto },
-        response: { type: SuccessResponseDataDto, description: '解绑数量' }
-    })
-    public async httpBaseSrmUnbindChannelPort(@Body() input: ChannelDto.UnbindChannelPortDto) {
-        return this.channelService.httpBaseSrmUnbindChannelPort(input)
-    }
-
     @ApiServiceDecorator(Post('port/column'), {
         operation: { summary: '分页查询通道端口' },
         request: { source: 'body', type: ChannelDto.ListChannelPortDto },
@@ -122,19 +113,10 @@ export class ChannelController {
         return this.channelService.httpBaseSrmColumnChannelPort(input)
     }
 
-    @ApiServiceDecorator(Post('port/available'), {
-        operation: { summary: '分页查询可绑定端口' },
-        request: { source: 'body', type: ChannelDto.ListAvailablePortDto },
-        response: { type: ChannelDto.AvailablePortPageResponseDto, description: '未绑定任何通道的端口' }
-    })
-    public async httpBaseSrmAvailableChannelPort(@Body() input: ChannelDto.ListAvailablePortDto) {
-        return this.channelService.httpBaseSrmAvailableChannelPort(input)
-    }
-
     @ApiServiceDecorator(Post('port/select'), {
         operation: { summary: '按方向和归属人查询可绑定端口' },
         request: { source: 'body', type: ChannelDto.ListOwnerCountryPortDto },
-        response: { type: ChannelDto.OwnerCountryPortPageResponseDto, description: '匹配方向和归属人的可绑定端口' }
+        response: { type: ChannelDto.OwnerCountryPortItemDto, isArray: true, description: '匹配方向和归属人的全部可绑定端口，不分页' }
     })
     public async httpBaseSrmSelectChannelPort(@Body() input: ChannelDto.ListOwnerCountryPortDto) {
         return this.channelService.httpBaseSrmSelectChannelPort(input)

@@ -2,7 +2,7 @@ import { ApiProperty, IntersectionType, PartialType, PickType } from '@nestjs/sw
 import { Type } from 'class-transformer'
 import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator'
 import { EnumsResponseDto, PageResponseDataDto } from '@wlisfes/chat-web-base-schema/decorator'
-import { PageDto } from '@wlisfes/chat-web-base-schema/utils'
+import { PageDto, VagueDto } from '@wlisfes/chat-web-base-schema/utils'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 
@@ -86,17 +86,6 @@ export class BindChannelPortDto extends PickType(Schema.TbSrmChannelPortDto, ['c
 /** 编辑端口绑定入参：POST /channel/port/update。 */
 export class UpdateChannelPortDto extends PickType(Schema.TbSrmChannelPortDto, ['keyId', 'weight', 'status'] as const) {}
 
-/** 解绑端口入参：POST /channel/port/unbind。 */
-export class UnbindChannelPortDto {
-    @ApiProperty({ description: '绑定记录ID集合', type: Number, isArray: true, example: [1] })
-    @IsArray({ message: '绑定记录ID集合必须是数组' })
-    @ArrayNotEmpty({ message: '请选择要解绑的端口' })
-    @Type(() => Number)
-    @IsInt({ each: true, message: '绑定记录ID必须是整数' })
-    @Min(1, { each: true, message: '绑定记录ID必须大于0' })
-    keyIds: number[]
-}
-
 /** 通道端口分页入参：POST /channel/port/column；name 匹配 SIM、ICCID、设备名称或别名。 */
 export class ListChannelPortDto extends IntersectionType(
     PageDto,
@@ -125,52 +114,40 @@ export class ChannelPortPageResponseDto extends PageResponseDataDto {
     list: ChannelPortColumnResponseDto[]
 }
 
-/** 可绑定端口入参：POST /channel/port/available；只返回未绑定任何通道、已激活且激活方向与通道方向一致的端口。 */
-export class ListAvailablePortDto extends IntersectionType(PageDto, PickType(Schema.TbSrmChannelPortDto, ['channelKeyId'] as const)) {
-    @ApiProperty({ description: '设备ID', required: false, example: 100201 })
-    @IsOptional()
-    @Type(() => Number)
-    @IsInt({ message: '设备ID必须是整数' })
-    @Min(1, { message: '设备ID必须大于0' })
-    simbankKeyId?: number
-}
-
-/** 可绑定端口分页响应：POST /channel/port/available。 */
-export class AvailablePortPageResponseDto extends PageResponseDataDto {
-    @ApiProperty({ description: '可绑定端口列表', type: [Schema.TbSrmSimbankPortDto] })
-    list: Schema.TbSrmSimbankPortDto[]
-}
-
 /** 按方向和归属人查询端口入参：POST /channel/port/select。 */
 export class ListOwnerCountryPortDto extends IntersectionType(
-    PageDto,
     PickType(Schema.TbSrmSimbankPortDto, ['countryKeyId'] as const),
-    PickType(Schema.TbSrmChannelDto, ['ownerUserUid'] as const)
+    PickType(Schema.TbSrmChannelDto, ['ownerUserUid'] as const),
+    VagueDto
 ) {}
 
-/** 按方向和归属人查询到的端口。 */
-export class OwnerCountryPortItemDto {
-    @ApiProperty({ description: '端口ID', example: 1002401 })
-    keyId: number
+/** 可绑定端口所属设备摘要。 */
+export class OwnerCountryPortSimbankDto extends PickType(Schema.TbSrmSimbankDto, [
+    'keyId',
+    'alias',
+    'name',
+    'mac',
+    'model',
+    'status',
+    'online'
+] as const) {}
 
-    @ApiProperty({ description: '端口号', example: 1 })
-    port: number
+/** 按方向和归属人查询到的可绑定端口，附带所属设备信息。 */
+export class OwnerCountryPortItemDto extends PickType(Schema.TbSrmSimbankPortDto, [
+    'keyId',
+    'port',
+    'sim',
+    'imei',
+    'iccid',
+    'countryKeyId',
+    'simbankKeyId',
+    'insertStatus',
+    'activateStatus',
+    'status'
+] as const) {
+    @ApiProperty({ description: '所属设备信息', required: false, type: OwnerCountryPortSimbankDto })
+    simbankOptions?: OwnerCountryPortSimbankDto
 
-    @ApiProperty({ description: 'SIM卡号', required: false, example: '85291234567' })
-    sim?: string
-
-    @ApiProperty({ description: '设备ID', example: 100201 })
-    simbankKeyId: number
-
-    @ApiProperty({ description: '激活方向', example: 1007 })
-    countryKeyId: number
-
-    @ApiProperty({ description: '下拉展示：设备别名 / 端口号 / SIM卡号', example: 'SSK1024SMSA001 / 1 / 85291234567' })
-    label: string
-}
-
-/** 按方向和归属人查询端口响应：POST /channel/port/select。 */
-export class OwnerCountryPortPageResponseDto extends PageResponseDataDto {
-    @ApiProperty({ description: '端口列表', type: [OwnerCountryPortItemDto] })
-    list: OwnerCountryPortItemDto[]
+    @ApiProperty({ description: '下拉展示：设备别名 - 端口号', example: 'SSK1024SMSA001 - 端口[1]' })
+    showName: string
 }
