@@ -73,28 +73,28 @@ export class RouteController {
         return this.routeService.httpBaseSrmSelectRoute()
     }
 
-    /* ------------------------------ 路由规则 ------------------------------ */
+    /* ------------------------------ 规则组 ------------------------------ */
 
     @ApiServiceDecorator(Post('rule/create'), {
-        operation: { summary: '新增路由规则' },
+        operation: { summary: '新增规则组' },
         request: { source: 'body', type: RouteDto.CreateRouteRuleDto },
-        response: { type: Schema.TbSrmRouteRuleDto, description: '新增后的路由规则' }
+        response: { type: Schema.TbSrmRouteRuleDto, description: '新增后的规则组' }
     })
     public async httpBaseSrmCreateRouteRule(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.CreateRouteRuleDto) {
         return this.routeService.httpBaseSrmCreateRouteRule(principal, input)
     }
 
     @ApiServiceDecorator(Post('rule/update'), {
-        operation: { summary: '编辑路由规则状态和备注' },
+        operation: { summary: '编辑规则组' },
         request: { source: 'body', type: RouteDto.UpdateRouteRuleDto },
-        response: { type: Schema.TbSrmRouteRuleDto, description: '编辑后的路由规则' }
+        response: { type: Schema.TbSrmRouteRuleDto, description: '编辑后的规则组' }
     })
     public async httpBaseSrmUpdateRouteRule(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.UpdateRouteRuleDto) {
         return this.routeService.httpBaseSrmUpdateRouteRule(principal, input)
     }
 
     @ApiServiceDecorator(Post('rule/delete'), {
-        operation: { summary: '删除路由规则' },
+        operation: { summary: '删除规则组' },
         request: { source: 'body', type: RouteDto.RouteRuleKeyDto },
         response: { type: SuccessResponseDataDto, description: '删除结果' }
     })
@@ -102,21 +102,21 @@ export class RouteController {
         return this.routeService.httpBaseSrmDeleteRouteRule(input)
     }
 
-    @ApiServiceDecorator(Post('rule/column'), {
-        operation: { summary: '分页查询路由规则' },
-        request: { source: 'body', type: RouteDto.ListRouteRuleDto },
-        response: { type: RouteDto.RouteRulePageResponseDto, description: '路由规则分页数据' }
+    @ApiServiceDecorator(Get('rule/list'), {
+        operation: { summary: '查询路由下的规则组' },
+        request: { source: 'query', type: RouteDto.ListRouteRuleDto },
+        response: { type: RouteDto.RouteRuleResponseDto, isArray: true, description: '规则组列表' }
     })
-    public async httpBaseSrmColumnRouteRule(@Body() input: RouteDto.ListRouteRuleDto) {
-        return this.routeService.httpBaseSrmColumnRouteRule(input)
+    public async httpBaseSrmListRouteRule(@Query() input: RouteDto.ListRouteRuleDto) {
+        return this.routeService.httpBaseSrmListRouteRule(input)
     }
 
-    /* ------------------------------ 规则通道 ------------------------------ */
+    /* ------------------------------ 路由通道 ------------------------------ */
 
-    @ApiServiceDecorator(Post('rule/channel/create'), {
-        operation: { summary: '路由规则加入通道' },
+    @ApiServiceDecorator(Post('channel/create'), {
+        operation: { summary: '路由批量加入通道' },
         request: { source: 'body', type: RouteDto.CreateRouteChannelDto },
-        response: { type: Schema.TbSrmRouteChannelDto, description: '新增后的规则通道' }
+        response: { type: RouteDto.RouteCountResponseDto, description: '加入数量' }
     })
     public async httpBaseSrmCreateRouteChannel(
         @CurrentPrincipal() principal: AuthPrincipal,
@@ -125,10 +125,10 @@ export class RouteController {
         return this.routeService.httpBaseSrmCreateRouteChannel(principal, input)
     }
 
-    @ApiServiceDecorator(Post('rule/channel/update'), {
-        operation: { summary: '编辑规则通道优先级、权重和状态' },
+    @ApiServiceDecorator(Post('channel/update'), {
+        operation: { summary: '编辑路由通道优先级、权重和状态' },
         request: { source: 'body', type: RouteDto.UpdateRouteChannelDto },
-        response: { type: Schema.TbSrmRouteChannelDto, description: '编辑后的规则通道' }
+        response: { type: Schema.TbSrmRouteChannelDto, description: '编辑后的路由通道' }
     })
     public async httpBaseSrmUpdateRouteChannel(
         @CurrentPrincipal() principal: AuthPrincipal,
@@ -137,8 +137,8 @@ export class RouteController {
         return this.routeService.httpBaseSrmUpdateRouteChannel(principal, input)
     }
 
-    @ApiServiceDecorator(Post('rule/channel/delete'), {
-        operation: { summary: '从路由规则移除通道' },
+    @ApiServiceDecorator(Post('channel/delete'), {
+        operation: { summary: '从路由移除通道' },
         request: { source: 'body', type: RouteDto.RouteChannelKeyDto },
         response: { type: SuccessResponseDataDto, description: '删除结果' }
     })
@@ -146,10 +146,10 @@ export class RouteController {
         return this.routeService.httpBaseSrmDeleteRouteChannel(input)
     }
 
-    @ApiServiceDecorator(Get('rule/channel/list'), {
-        operation: { summary: '查询路由规则下的通道' },
+    @ApiServiceDecorator(Get('channel/list'), {
+        operation: { summary: '查询路由下的通道' },
         request: { source: 'query', type: RouteDto.ListRouteChannelDto },
-        response: { type: RouteDto.RouteChannelResponseDto, isArray: true, description: '规则通道列表' }
+        response: { type: RouteDto.RouteChannelResponseDto, isArray: true, description: '路由通道列表' }
     })
     public async httpBaseSrmListRouteChannel(@Query() input: RouteDto.ListRouteChannelDto) {
         return this.routeService.httpBaseSrmListRouteChannel(input)
@@ -171,8 +171,8 @@ export class RouteController {
         request: { source: 'body', type: RouteDto.UnbindRouteAppDto },
         response: { type: RouteDto.RouteCountResponseDto, description: '解绑数量' }
     })
-    public async httpBaseSrmUnbindRouteApp(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.UnbindRouteAppDto) {
-        return this.routeService.httpBaseSrmUnbindRouteApp(principal, input)
+    public async httpBaseSrmUnbindRouteApp(@Body() input: RouteDto.UnbindRouteAppDto) {
+        return this.routeService.httpBaseSrmUnbindRouteApp(input)
     }
 
     @ApiServiceDecorator(Post('app/column'), {
@@ -187,7 +187,7 @@ export class RouteController {
     /* ------------------------------ 选路预览 ------------------------------ */
 
     @ApiServiceDecorator(Post('preview'), {
-        operation: { summary: '选路预览：按短信应用和收件号码模拟选择通道' },
+        operation: { summary: '选路预览：按短信应用、方向和类型模拟选择通道' },
         request: { source: 'body', type: RouteDto.RoutePreviewDto },
         response: { type: RouteDto.RoutePreviewResponseDto, description: '选路结果' }
     })

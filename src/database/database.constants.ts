@@ -25,7 +25,7 @@ export const SRM_MYSQL_ENTITIES = [
     TbSrmChannel,
     TbSrmChannelPort,
     TbSrmRoute,
-    TbSrmRouteRule,
     TbSrmRouteChannel,
-    TbSrmRouteApp
+    TbSrmRouteApp,
+    TbSrmRouteRule
 ]
