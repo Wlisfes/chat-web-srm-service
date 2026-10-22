@@ -66,20 +66,20 @@ function createService(manager) {
     return new RouteService(repository, {}, skyline, crm, sms, { get: () => 'service-token' })
 }
 
-test('新增路由按传入类型保存，排序默认 0；编辑不能修改类型', async () => {
+test('新增路由按传入类型保存，优先级默认 1；编辑不能修改类型', async () => {
     const tables = { TbSrmRoute: [] }
     const service = createService(createManager(tables))
     const route = await service.httpBaseSrmCreateRoute(principal, { name: ' 大客户线路 ', type: 'targeted' })
-    assert.deepEqual([route.name, route.type, route.sort, route.status], ['大客户线路', 'targeted', 0, 'enable'])
+    assert.deepEqual([route.name, route.type, route.priority, route.status], ['大客户线路', 'targeted', 1, 'enable'])
     tables.TbSrmRoute.push({ ...route, keyId: 1 })
     const updated = await service.httpBaseSrmUpdateRoute(principal, {
         keyId: 1,
         name: '大客户线路',
         status: 'enable',
-        sort: 3,
+        priority: 3,
         type: 'general'
     })
-    assert.deepEqual([updated.type, updated.sort], ['targeted', 3])
+    assert.deepEqual([updated.type, updated.priority], ['targeted', 3])
 })
 
 test('路由别名重复时拒绝，有绑定应用的路由不能删除', async () => {
@@ -140,9 +140,9 @@ test('路由可以加入不同方向和类型的通道，重复加入时拒绝',
 function routeTables() {
     return {
         TbSrmRoute: [
-            { keyId: 1, name: '专线', type: 'targeted', sort: 0, status: 'enable' },
-            { keyId: 2, name: '通用B', type: 'general', sort: 2, status: 'enable' },
-            { keyId: 3, name: '通用A', type: 'general', sort: 1, status: 'enable' }
+            { keyId: 1, name: '专线', type: 'targeted', priority: 1, status: 'enable' },
+            { keyId: 2, name: '通用B', type: 'general', priority: 2, status: 'enable' },
+            { keyId: 3, name: '通用A', type: 'general', priority: 1, status: 'enable' }
         ],
         TbSrmRouteApp: [{ keyId: 9, appKeyId: 1001, routeKeyId: 1 }],
         TbSrmChannel: [
@@ -177,7 +177,7 @@ test('分流占比只在同路由、同方向、同类型、同优先级的可�
     assert.deepEqual(ratio, { 2: 60, 3: 40, 4: 100, 5: 100 })
 })
 
-test('选路：定向路由没有该方向通道时，按排序回落到通用路由', async () => {
+test('选路：定向路由没有该方向通道时，按优先级回落到通用路由', async () => {
     const result = await createService(createManager(routeTables())).httpBaseSrmRoutePreview({ appKeyId: 1001, countryKeyId: 1007 })
     assert.equal(result.matched, true)
     assert.equal(result.fallback, true)

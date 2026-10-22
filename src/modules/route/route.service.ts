@@ -8,7 +8,7 @@ import * as Schema from '@wlisfes/chat-web-base-schema'
 import * as RouteDto from '@/modules/route/dto/route.dto'
 
 /** 参与规则匹配的短信属性。 */
-type RouteMessage = { countryKeyId: number; type: Schema.TbSrmChannelType; phone: string }
+type RouteMessage = { countryKeyId: number; type: Schema.TbSmsAppType; phone: string }
 
 @Injectable()
 export class RouteService {
@@ -30,7 +30,7 @@ export class RouteService {
             ruleStatusOptions: Schema.TbSrmRouteRuleStatusDefinition.options,
             ruleFieldOptions: Schema.TbSrmRouteRuleFieldDefinition.options,
             ruleOperatorOptions: Schema.TbSrmRouteRuleOperatorDefinition.options,
-            typeOptions: Schema.TbSrmChannelTypeDefinition.options
+            typeOptions: Schema.TbSmsAppTypeDefinition.options
         }
     }
 
@@ -46,7 +46,7 @@ export class RouteService {
                     name: input.name.trim(),
                     alias,
                     type: input.type,
-                    sort: input.sort ?? 0,
+                    priority: input.priority ?? 1,
                     status: input.status ?? Schema.TbSrmRouteStatus.ENABLE,
                     remark: input.remark?.trim() || null,
                     createBy: principal.uid,
@@ -56,7 +56,7 @@ export class RouteService {
         })
     }
 
-    /** 编辑路由：可修改名称、别名、排序、状态和备注，不能修改类型。 */
+    /** 编辑路由：可修改名称、别名、优先级、状态和备注，不能修改类型。 */
     public async httpBaseSrmUpdateRoute(principal: AuthPrincipal, input: RouteDto.UpdateRouteDto): Promise<Schema.TbSrmRoute> {
         return this.repository.manager.transaction(async manager => {
             const route = await this.findRouteRequired(manager, input.keyId)
@@ -65,7 +65,7 @@ export class RouteService {
             manager.merge(Schema.TbSrmRoute, route, {
                 name: input.name.trim(),
                 alias,
-                sort: input.sort ?? route.sort,
+                priority: input.priority ?? route.priority,
                 status: input.status,
                 remark: input.remark?.trim() || null,
                 modifyBy: principal.uid
@@ -93,7 +93,7 @@ export class RouteService {
         return this.findRouteRequired(this.repository.manager, input.keyId)
     }
 
-    /** 路由分页：通用路由在前并按排序，附带规则摘要、通道数、覆盖的方向和类型、绑定短信应用数。 */
+    /** 路由分页：通用路由在前并按优先级，附带规则摘要、通道数、覆盖的方向和类型、绑定短信应用数。 */
     public async httpBaseSrmColumnRoute(input: RouteDto.ListRouteDto): Promise<PageResult<RouteDto.RouteColumnResponseDto>> {
         const { page, size } = fetchUntiePagination(input)
         return this.database.builder(this.repository, async qb => {
@@ -101,7 +101,7 @@ export class RouteService {
             if (keyword) qb.andWhere('(t.name LIKE :keyword OR t.alias LIKE :keyword)', { keyword: `%${keyword}%` })
             if (isNotEmpty(input.status)) qb.andWhere('t.status = :status', { status: input.status })
             if (isNotEmpty(input.type)) qb.andWhere('t.type = :type', { type: input.type })
-            qb.orderBy('t.type', 'ASC').addOrderBy('t.sort', 'ASC').addOrderBy('t.createTime', 'ASC').addOrderBy('t.keyId', 'ASC')
+            qb.orderBy('t.type', 'ASC').addOrderBy('t.priority', 'ASC').addOrderBy('t.createTime', 'ASC').addOrderBy('t.keyId', 'ASC')
             qb.skip((page - 1) * size).take(size)
             const [list, total] = await qb.getManyAndCount()
             const keyIds = list.map(item => item.keyId)
@@ -145,11 +145,11 @@ export class RouteService {
         })
     }
 
-    /** 路由下拉：通用路由在前并按排序。 */
+    /** 路由下拉：通用路由在前并按优先级。 */
     public async httpBaseSrmSelectRoute(): Promise<RouteDto.RouteSelectResponseDto[]> {
         return this.repository.find({
-            select: { keyId: true, name: true, alias: true, type: true, sort: true, status: true },
-            order: { type: 'ASC', sort: 'ASC', createTime: 'ASC', keyId: 'ASC' }
+            select: { keyId: true, name: true, alias: true, type: true, priority: true, status: true },
+            order: { type: 'ASC', priority: 'ASC', createTime: 'ASC', keyId: 'ASC' }
         })
     }
 
@@ -321,7 +321,7 @@ export class RouteService {
         })
     }
 
-    /** 解绑短信应用：解绑后应用按排序使用通用路由，路由类型不变。 */
+    /** 解绑短信应用：解绑后应用按优先级使用通用路由，路由类型不变。 */
     public async httpBaseSrmUnbindRouteApp(input: RouteDto.UnbindRouteAppDto): Promise<RouteDto.RouteCountResponseDto> {
         const result = await this.repository.manager.delete(Schema.TbSrmRouteApp, { keyId: In([...new Set(input.keyIds)]) })
         return { count: result.affected ?? 0 }
@@ -347,7 +347,7 @@ export class RouteService {
                         keyIds: [...new Set(rows.map(item => item.userKeyId))]
                     }),
                     this.repository.find({
-                        select: { keyId: true, name: true, alias: true, type: true, sort: true, status: true },
+                        select: { keyId: true, name: true, alias: true, type: true, priority: true, status: true },
                         where: { keyId: In([...new Set(rows.map(item => item.routeKeyId))]) }
                     })
                 ])
@@ -366,19 +366,19 @@ export class RouteService {
     /* ------------------------------ 选路预览 ------------------------------ */
 
     /**
-     * 选路预览：先查短信应用绑定的定向路由，再按排序依次查启用的通用路由。
+     * 选路预览：先查短信应用绑定的定向路由，再按优先级依次查启用的通用路由。
      * 短信满足路由任意一个启用的规则组才进入该路由；进入后筛出方向和类型一致的通道，
      * 取最高可用优先级内的通道按权重分流。没有进入或没有可用通道就尝试下一条路由。
      */
     public async httpBaseSrmRoutePreview(input: RouteDto.RoutePreviewDto): Promise<RouteDto.RoutePreviewResponseDto> {
         const [app] = await this.smsFeignClient.httpBaseSmsColumnAppResolver(this.authorization(), { keyIds: [input.appKeyId] })
         if (!app) throw new NotFoundException('短信应用不存在')
-        const type = input.type ?? (app.type as unknown as Schema.TbSrmChannelType)
+        const type = input.type ?? app.type
         const binding = await this.repository.manager.findOneBy(Schema.TbSrmRouteApp, { appKeyId: app.keyId })
         const bound = binding ? await this.repository.findOneBy({ keyId: binding.routeKeyId }) : null
         const generals = await this.repository.find({
             where: { type: Schema.TbSrmRouteType.GENERAL, status: Schema.TbSrmRouteStatus.ENABLE },
-            order: { sort: 'ASC', createTime: 'ASC', keyId: 'ASC' }
+            order: { priority: 'ASC', createTime: 'ASC', keyId: 'ASC' }
         })
         const routes = [bound?.status === Schema.TbSrmRouteStatus.ENABLE ? bound : null, ...generals].filter(
             (route): route is Schema.TbSrmRoute => !!route
@@ -452,7 +452,7 @@ export class RouteService {
                 throw new BadRequestException(`条件字段 ${condition.field} 不支持操作符 ${condition.operator}`)
             if (
                 condition.field === TYPE &&
-                value.some(item => !Object.values(Schema.TbSrmChannelType).includes(item as Schema.TbSrmChannelType))
+                value.some(item => !Object.values(Schema.TbSmsAppType).includes(item as Schema.TbSmsAppType))
             ) {
                 throw new BadRequestException('短信类型取值只能是 MRKT、NTFY、SOTP')
             }
@@ -587,7 +587,7 @@ export class RouteService {
 
     /** 路由摘要。 */
     private pickRoute(route: Schema.TbSrmRoute): RouteDto.RouteSelectResponseDto {
-        return { keyId: route.keyId, name: route.name, alias: route.alias, type: route.type, sort: route.sort, status: route.status }
+        return { keyId: route.keyId, name: route.name, alias: route.alias, type: route.type, priority: route.priority, status: route.status }
     }
 
     /** 校验路由别名未被其他路由使用。 */

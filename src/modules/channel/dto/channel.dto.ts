@@ -10,7 +10,7 @@ import * as Schema from '@wlisfes/chat-web-base-schema'
 export class ChannelEnumsResponseDto extends EnumsResponseDto({
     statusOptions: { description: '通道状态选项', example: Schema.TbSrmChannelStatusDefinition.options },
     portStatusOptions: { description: '绑定状态选项', example: Schema.TbSrmChannelPortStatusDefinition.options },
-    typeOptions: { description: '通道类型选项', example: Schema.TbSrmChannelTypeDefinition.options }
+    typeOptions: { description: '通道类型选项', example: Schema.TbSmsAppTypeDefinition.options }
 }) {}
 
 /** 新增通道入参：POST /channel/create；别名按 创建人工号-方向MCC-类型-序号 自动生成，负责人默认当前登录人，新建通道默认停用。 */

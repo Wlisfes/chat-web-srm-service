@@ -14,7 +14,7 @@ export class RouteEnumsResponseDto extends EnumsResponseDto({
     ruleStatusOptions: { description: '规则组状态选项', example: Schema.TbSrmRouteRuleStatusDefinition.options },
     ruleFieldOptions: { description: '条件字段选项', example: Schema.TbSrmRouteRuleFieldDefinition.options },
     ruleOperatorOptions: { description: '条件操作符选项', example: Schema.TbSrmRouteRuleOperatorDefinition.options },
-    typeOptions: { description: '短信类型选项', example: Schema.TbSrmChannelTypeDefinition.options }
+    typeOptions: { description: '短信类型选项', example: Schema.TbSmsAppTypeDefinition.options }
 }) {}
 
 /** 数量响应：批量绑定、解绑短信应用。 */
@@ -28,13 +28,13 @@ export class RouteCountResponseDto {
 /** 新增路由入参：POST /route/create；路由类型创建后不可修改。 */
 export class CreateRouteDto extends IntersectionType(
     PickType(Schema.TbSrmRouteDto, ['name', 'type'] as const),
-    PartialType(PickType(Schema.TbSrmRouteDto, ['alias', 'sort', 'status', 'remark'] as const))
+    PartialType(PickType(Schema.TbSrmRouteDto, ['alias', 'priority', 'status', 'remark'] as const))
 ) {}
 
 /** 编辑路由入参：POST /route/update；不能修改路由类型。 */
 export class UpdateRouteDto extends IntersectionType(
     PickType(Schema.TbSrmRouteDto, ['keyId', 'name', 'status'] as const),
-    PartialType(PickType(Schema.TbSrmRouteDto, ['alias', 'sort', 'remark'] as const))
+    PartialType(PickType(Schema.TbSrmRouteDto, ['alias', 'priority', 'remark'] as const))
 ) {}
 
 /** 路由主键入参：GET /route/resolve、POST /route/delete。 */
@@ -54,8 +54,8 @@ export class RouteCoverageDto {
     @ApiProperty({ description: '方向：Skyline 国家/地区主键', example: 1007 })
     countryKeyId: number
 
-    @ApiProperty({ description: '短信类型', enum: Schema.TbSrmChannelType, example: Schema.TbSrmChannelType.MRKT })
-    type: Schema.TbSrmChannelType
+    @ApiProperty({ description: '短信类型', enum: Schema.TbSmsAppType, example: Schema.TbSmsAppType.MRKT })
+    type: Schema.TbSmsAppType
 
     @ApiProperty({ description: '方向信息', required: false, type: feign.SkylineCountrySummaryResponseDto })
     countryKeyIdOptions?: feign.SkylineCountrySummaryResponseDto
@@ -98,7 +98,7 @@ export class RoutePageResponseDto extends PageResponseDataDto {
 }
 
 /** 路由下拉项：GET /route/select。 */
-export class RouteSelectResponseDto extends PickType(Schema.TbSrmRouteDto, ['keyId', 'name', 'alias', 'type', 'sort', 'status'] as const) {}
+export class RouteSelectResponseDto extends PickType(Schema.TbSrmRouteDto, ['keyId', 'name', 'alias', 'type', 'priority', 'status'] as const) {}
 
 /* ------------------------------ 规则组 ------------------------------ */
 
@@ -187,7 +187,7 @@ export class BindRouteAppDto extends PickType(Schema.TbSrmRouteAppDto, ['routeKe
     appKeyIds: number[]
 }
 
-/** 解绑短信应用入参：POST /route/app/unbind；解绑后应用按排序使用通用路由。 */
+/** 解绑短信应用入参：POST /route/app/unbind；解绑后应用按优先级使用通用路由。 */
 export class UnbindRouteAppDto {
     @ApiProperty({ description: '绑定记录主键集合', type: Number, isArray: true, example: [1] })
     @IsArray({ message: '绑定记录集合必须是数组' })
@@ -255,10 +255,10 @@ export class RoutePreviewDto extends PickType(Schema.TbSrmRouteAppDto, ['appKeyI
     @Min(1, { message: '方向必须大于0' })
     countryKeyId: number
 
-    @ApiProperty({ description: '短信类型：不传时使用短信应用类型', required: false, enum: Schema.TbSrmChannelType })
+    @ApiProperty({ description: '短信类型：不传时使用短信应用类型', required: false, enum: Schema.TbSmsAppType })
     @IsOptional()
-    @IsEnum(Schema.TbSrmChannelType, { message: '短信类型格式错误' })
-    type?: Schema.TbSrmChannelType
+    @IsEnum(Schema.TbSmsAppType, { message: '短信类型格式错误' })
+    type?: Schema.TbSmsAppType
 }
 
 /** 选路预览通道：selected 表示本次实际参与分流的通道。 */
@@ -293,8 +293,8 @@ export class RoutePreviewResponseDto {
     @ApiProperty({ description: '选路说明', example: '命中定向路由【大客户线路】' })
     message: string
 
-    @ApiProperty({ description: '本次选路使用的短信类型', enum: Schema.TbSrmChannelType })
-    type: Schema.TbSrmChannelType
+    @ApiProperty({ description: '本次选路使用的短信类型', enum: Schema.TbSmsAppType })
+    type: Schema.TbSmsAppType
 
     @ApiProperty({ description: '短信应用信息', type: feign.SmsAppSummaryResponseDto })
     appOptions: feign.SmsAppSummaryResponseDto
@@ -302,6 +302,6 @@ export class RoutePreviewResponseDto {
     @ApiProperty({ description: '是否回落到通用路由', example: false })
     fallback: boolean
 
-    @ApiProperty({ description: '按顺序尝试的路由：定向路由在前，通用路由按排序在后，直到命中为止', type: [RoutePreviewStepDto] })
+    @ApiProperty({ description: '按顺序尝试的路由：定向路由在前，通用路由按优先级在后，直到命中为止', type: [RoutePreviewStepDto] })
     steps: RoutePreviewStepDto[]
 }

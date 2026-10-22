@@ -24,7 +24,7 @@ export class ChannelService {
         return {
             statusOptions: Schema.TbSrmChannelStatusDefinition.options,
             portStatusOptions: Schema.TbSrmChannelPortStatusDefinition.options,
-            typeOptions: Schema.TbSrmChannelTypeDefinition.options
+            typeOptions: Schema.TbSmsAppTypeDefinition.options
         }
     }
 
@@ -300,7 +300,7 @@ export class ChannelService {
     }
 
     /** 生成通道别名：创建人工号-方向MCC-类型-序号，序号在同一前缀下递增，两位补零。 */
-    private async createAlias(manager: EntityManager, number: string, mcc: string, type: Schema.TbSrmChannelType): Promise<string> {
+    private async createAlias(manager: EntityManager, number: string, mcc: string, type: Schema.TbSmsAppType): Promise<string> {
         if (!number) throw new BadRequestException('当前账号缺少工号，不能生成通道别名')
         const prefix = `${number}-${mcc}-${type}-`.toUpperCase()
         const rows = await manager
