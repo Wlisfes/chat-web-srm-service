@@ -25,16 +25,16 @@ export class RouteCountResponseDto {
 
 /* ------------------------------ 路由 ------------------------------ */
 
-/** 新增路由入参：POST /route/create；路由类型创建后不可修改。 */
+/** 新增路由入参：POST /route/create；别名按 SK + 归属人工号 + 路由类型 + 分段序号自动生成，类型创建后不可修改。 */
 export class CreateRouteDto extends IntersectionType(
     PickType(Schema.TbSrmRouteDto, ['name', 'type'] as const),
-    PartialType(PickType(Schema.TbSrmRouteDto, ['alias', 'priority', 'status', 'remark'] as const))
+    PartialType(PickType(Schema.TbSrmRouteDto, ['priority', 'status', 'ownerUserUid', 'remark'] as const))
 ) {}
 
-/** 编辑路由入参：POST /route/update；不能修改路由类型。 */
+/** 编辑路由入参：POST /route/update；只能修改名称、优先级、状态和备注。 */
 export class UpdateRouteDto extends IntersectionType(
     PickType(Schema.TbSrmRouteDto, ['keyId', 'name', 'status'] as const),
-    PartialType(PickType(Schema.TbSrmRouteDto, ['alias', 'priority', 'remark'] as const))
+    PartialType(PickType(Schema.TbSrmRouteDto, ['priority', 'remark'] as const))
 ) {}
 
 /** 路由主键入参：GET /route/resolve、POST /route/delete。 */
@@ -89,6 +89,9 @@ export class RouteColumnResponseDto extends IntersectionType(Schema.TbSrmRouteDt
 
     @ApiProperty({ description: '绑定的短信应用数', example: 30 })
     appCount: number
+
+    @ApiProperty({ description: '归属人信息', required: false, type: feign.SkylineUserOptionResponseDto })
+    ownerUserUidOptions?: feign.SkylineUserOptionResponseDto
 }
 
 /** 路由分页响应：POST /route/column。 */
@@ -175,7 +178,7 @@ export class RouteChannelResponseDto extends Schema.TbSrmRouteChannelDto {
 
 /* ------------------------------ 短信应用绑定 ------------------------------ */
 
-/** 短信应用绑定路由入参：POST /route/app/bind；只能绑定定向路由，已绑定其他路由的应用会改绑到当前路由。 */
+/** 短信应用绑定路由入参：POST /route/app/bind；只能绑定同类型路由，已绑定其他路由的应用会改绑到当前路由。 */
 export class BindRouteAppDto extends PickType(Schema.TbSrmRouteAppDto, ['routeKeyId'] as const) {
     @ApiProperty({ description: '短信应用主键集合', type: Number, isArray: true, example: [1001, 1002] })
     @IsArray({ message: '短信应用集合必须是数组' })
@@ -187,7 +190,7 @@ export class BindRouteAppDto extends PickType(Schema.TbSrmRouteAppDto, ['routeKe
     appKeyIds: number[]
 }
 
-/** 解绑短信应用入参：POST /route/app/unbind；解绑后应用按优先级使用通用路由。 */
+/** 解绑短信应用入参：POST /route/app/unbind；解绑后应用按优先级使用同类型路由。 */
 export class UnbindRouteAppDto {
     @ApiProperty({ description: '绑定记录主键集合', type: Number, isArray: true, example: [1] })
     @IsArray({ message: '绑定记录集合必须是数组' })
@@ -290,7 +293,7 @@ export class RoutePreviewResponseDto {
     @ApiProperty({ description: '是否找到可用通道', example: true })
     matched: boolean
 
-    @ApiProperty({ description: '选路说明', example: '命中定向路由【大客户线路】' })
+    @ApiProperty({ description: '选路说明', example: '命中绑定路由【大客户线路】' })
     message: string
 
     @ApiProperty({ description: '本次选路使用的短信类型', enum: Schema.TbSmsAppType })
@@ -299,9 +302,9 @@ export class RoutePreviewResponseDto {
     @ApiProperty({ description: '短信应用信息', type: feign.SmsAppSummaryResponseDto })
     appOptions: feign.SmsAppSummaryResponseDto
 
-    @ApiProperty({ description: '是否回落到通用路由', example: false })
+    @ApiProperty({ description: '是否回落到其他同类型路由', example: false })
     fallback: boolean
 
-    @ApiProperty({ description: '按顺序尝试的路由：定向路由在前，通用路由按优先级在后，直到命中为止', type: [RoutePreviewStepDto] })
+    @ApiProperty({ description: '按顺序尝试的路由：绑定的同类型路由在前，其他同类型路由按优先级在后，直到命中为止', type: [RoutePreviewStepDto] })
     steps: RoutePreviewStepDto[]
 }

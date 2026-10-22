@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
-import { DataBaseService, EntityManager, In, InjectRepository, Not, Repository } from '@wlisfes/chat-web-base-schema/database'
+import { DataBaseService, EntityManager, In, InjectRepository, Repository } from '@wlisfes/chat-web-base-schema/database'
 import { PageResult, fetchResolver, fetchUntiePagination, isNotEmpty } from '@wlisfes/chat-web-base-schema/utils'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
@@ -36,11 +36,12 @@ export class RouteService {
 
     /* ------------------------------ 路由 ------------------------------ */
 
-    /** 新增路由：类型创建时选择且不可修改；别名非空时全表唯一。 */
+    /** 新增路由：别名按 SK + 归属人工号 + 路由类型 + 分段序号自动生成；类型创建后不可修改。 */
     public async httpBaseSrmCreateRoute(principal: AuthPrincipal, input: RouteDto.CreateRouteDto): Promise<Schema.TbSrmRoute> {
+        const ownerUserUid = input.ownerUserUid ?? principal.uid
+        const ownerNumber = await this.resolveOwnerNumber(principal, ownerUserUid)
         return this.repository.manager.transaction(async manager => {
-            const alias = input.alias?.trim() || null
-            await this.assertAliasAvailable(manager, alias)
+            const alias = await this.generateAlias(manager, ownerNumber, input.type)
             return manager.save(
                 manager.create(Schema.TbSrmRoute, {
                     name: input.name.trim(),
@@ -48,6 +49,7 @@ export class RouteService {
                     type: input.type,
                     priority: input.priority ?? 1,
                     status: input.status ?? Schema.TbSrmRouteStatus.ENABLE,
+                    ownerUserUid,
                     remark: input.remark?.trim() || null,
                     createBy: principal.uid,
                     modifyBy: principal.uid
@@ -56,15 +58,12 @@ export class RouteService {
         })
     }
 
-    /** 编辑路由：可修改名称、别名、优先级、状态和备注，不能修改类型。 */
+    /** 编辑路由：只能修改名称、优先级、状态和备注。 */
     public async httpBaseSrmUpdateRoute(principal: AuthPrincipal, input: RouteDto.UpdateRouteDto): Promise<Schema.TbSrmRoute> {
         return this.repository.manager.transaction(async manager => {
             const route = await this.findRouteRequired(manager, input.keyId)
-            const alias = input.alias?.trim() || null
-            await this.assertAliasAvailable(manager, alias, route.keyId)
             manager.merge(Schema.TbSrmRoute, route, {
                 name: input.name.trim(),
-                alias,
                 priority: input.priority ?? route.priority,
                 status: input.status,
                 remark: input.remark?.trim() || null,
@@ -93,7 +92,7 @@ export class RouteService {
         return this.findRouteRequired(this.repository.manager, input.keyId)
     }
 
-    /** 路由分页：通用路由在前并按优先级，附带规则摘要、通道数、覆盖的方向和类型、绑定短信应用数。 */
+    /** 路由分页：按短信类型和优先级排序，附带规则摘要、通道数、覆盖的方向和类型、绑定短信应用数。 */
     public async httpBaseSrmColumnRoute(input: RouteDto.ListRouteDto): Promise<PageResult<RouteDto.RouteColumnResponseDto>> {
         const { page, size } = fetchUntiePagination(input)
         return this.database.builder(this.repository, async qb => {
@@ -133,7 +132,7 @@ export class RouteService {
                 }
             })
             await Promise.all([
-                feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, rows, ['createBy', 'modifyBy']),
+                feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, rows, ['ownerUserUid', 'createBy', 'modifyBy']),
                 feign.fetchAppendSkylineCountryOptions(
                     this.skylineFeignClient,
                     this.configService,
@@ -145,7 +144,7 @@ export class RouteService {
         })
     }
 
-    /** 路由下拉：通用路由在前并按优先级。 */
+    /** 路由下拉：按短信类型和优先级排序。 */
     public async httpBaseSrmSelectRoute(): Promise<RouteDto.RouteSelectResponseDto[]> {
         return this.repository.find({
             select: { keyId: true, name: true, alias: true, type: true, priority: true, status: true },
@@ -286,7 +285,7 @@ export class RouteService {
 
     /* ------------------------------ 短信应用绑定 ------------------------------ */
 
-    /** 短信应用绑定路由：只能绑定定向路由；已绑定其他路由的应用改绑到当前路由。 */
+    /** 短信应用绑定路由：只能绑定同类型路由；已绑定其他路由的应用改绑到当前路由。 */
     public async httpBaseSrmBindRouteApp(
         principal: AuthPrincipal,
         input: RouteDto.BindRouteAppDto
@@ -296,7 +295,7 @@ export class RouteService {
         if (apps.length !== appKeyIds.length) throw new NotFoundException('部分短信应用不存在')
         return this.repository.manager.transaction(async manager => {
             const route = await this.findRouteRequired(manager, input.routeKeyId)
-            if (route.type !== Schema.TbSrmRouteType.TARGETED) throw new BadRequestException('通用路由不能绑定短信应用，请使用定向路由')
+            if (apps.some(app => String(app.type) !== route.type)) throw new BadRequestException('短信应用类型与路由类型不一致')
             const existed = await manager.find(Schema.TbSrmRouteApp, { where: { appKeyId: In(appKeyIds) } })
             for (const app of apps) {
                 const binding = existed.find(item => item.appKeyId === app.keyId)
@@ -321,7 +320,7 @@ export class RouteService {
         })
     }
 
-    /** 解绑短信应用：解绑后应用按优先级使用通用路由，路由类型不变。 */
+    /** 解绑短信应用：解绑后应用按优先级使用同类型路由，路由类型不变。 */
     public async httpBaseSrmUnbindRouteApp(input: RouteDto.UnbindRouteAppDto): Promise<RouteDto.RouteCountResponseDto> {
         const result = await this.repository.manager.delete(Schema.TbSrmRouteApp, { keyId: In([...new Set(input.keyIds)]) })
         return { count: result.affected ?? 0 }
@@ -366,7 +365,7 @@ export class RouteService {
     /* ------------------------------ 选路预览 ------------------------------ */
 
     /**
-     * 选路预览：先查短信应用绑定的定向路由，再按优先级依次查启用的通用路由。
+     * 选路预览：先试绑定的同类型路由，再按优先级依次试其他启用的同类型路由。
      * 短信满足路由任意一个启用的规则组才进入该路由；进入后筛出方向和类型一致的通道，
      * 取最高可用优先级内的通道按权重分流。没有进入或没有可用通道就尝试下一条路由。
      */
@@ -376,16 +375,18 @@ export class RouteService {
         const type = input.type ?? app.type
         const binding = await this.repository.manager.findOneBy(Schema.TbSrmRouteApp, { appKeyId: app.keyId })
         const bound = binding ? await this.repository.findOneBy({ keyId: binding.routeKeyId }) : null
-        const generals = await this.repository.find({
-            where: { type: Schema.TbSrmRouteType.GENERAL, status: Schema.TbSrmRouteStatus.ENABLE },
+        const routeType = type as unknown as Schema.TbSrmRouteType
+        const sameType = await this.repository.find({
+            where: { type: routeType, status: Schema.TbSrmRouteStatus.ENABLE },
             order: { priority: 'ASC', createTime: 'ASC', keyId: 'ASC' }
         })
-        const routes = [bound?.status === Schema.TbSrmRouteStatus.ENABLE ? bound : null, ...generals].filter(
+        const boundMatches = bound?.status === Schema.TbSrmRouteStatus.ENABLE && bound.type === routeType ? bound : null
+        const routes = [boundMatches, ...sameType.filter(route => route.keyId !== boundMatches?.keyId)].filter(
             (route): route is Schema.TbSrmRoute => !!route
         )
         const base = { type, appOptions: app, steps: [] as RouteDto.RoutePreviewStepDto[] }
         if (routes.length === 0) {
-            return { ...base, matched: false, fallback: false, message: '没有可用的路由：应用未绑定启用的定向路由，也没有启用的通用路由' }
+            return { ...base, matched: false, fallback: false, message: '没有可用的路由：没有启用的同类型路由' }
         }
         const routeKeyIds = routes.map(route => route.keyId)
         const [channels, rules] = await Promise.all([
@@ -418,12 +419,12 @@ export class RouteService {
                 matched
             })
             if (matched) {
-                const targeted = route.keyId === bound?.keyId
+                const boundHit = route.keyId === boundMatches?.keyId
                 return {
                     ...base,
                     matched: true,
-                    fallback: !!bound && !targeted,
-                    message: `命中${targeted ? '定向' : '通用'}路由【${route.name}】`
+                    fallback: !!boundMatches && !boundHit,
+                    message: `命中${boundHit ? '绑定' : '同类型'}路由【${route.name}】`
                 }
             }
         }
@@ -590,18 +591,70 @@ export class RouteService {
         return { keyId: route.keyId, name: route.name, alias: route.alias, type: route.type, priority: route.priority, status: route.status }
     }
 
-    /** 校验路由别名未被其他路由使用。 */
-    private async assertAliasAvailable(manager: EntityManager, alias: string | null, keyId?: number): Promise<void> {
-        if (!alias) return
-        const where = keyId ? { alias, keyId: Not(keyId) } : { alias }
-        if (await manager.existsBy(Schema.TbSrmRoute, where)) throw new ConflictException(`路由别名【${alias}】已存在`)
-    }
-
     /** 校验路由存在。 */
     private async findRouteRequired(manager: EntityManager, keyId: number): Promise<Schema.TbSrmRoute> {
         const route = await manager.findOneBy(Schema.TbSrmRoute, { keyId })
         if (!route) throw new NotFoundException('路由不存在')
         return route
+    }
+
+    /** 取归属人工号：当前登录人直接用工号，其他人通过 Skyline 账号还原。 */
+    private async resolveOwnerNumber(principal: AuthPrincipal, ownerUserUid: string): Promise<string> {
+        if (ownerUserUid === principal.uid) return this.requireEmployeeNumber(principal.number, '当前登录账号')
+        const [user] = await this.skylineFeignClient.httpBaseSkylineColumnUserResolver(this.authorization(), { uids: [ownerUserUid] })
+        if (!user) throw new BadRequestException('归属人不存在')
+        return this.requireEmployeeNumber(user.number, '归属人')
+    }
+
+    private requireEmployeeNumber(number: string | undefined, label: string): string {
+        const userNumber = number?.trim()
+        if (!isNotEmpty(userNumber) || !/^[A-Za-z0-9]+$/.test(userNumber)) {
+            throw new BadRequestException(`${label}缺少有效工号，无法生成路由别名`)
+        }
+        return userNumber
+    }
+
+    /**
+     * 生成路由别名：SK + 归属人工号 + 路由类型 + 4位分段序号。
+     * 序号规则与短信应用别名一致：A001-Z999，用完后进入 AA01-ZZ99。同一工号同一类型内自增。
+     */
+    private async generateAlias(manager: EntityManager, number: string, type: Schema.TbSrmRouteType): Promise<string> {
+        const prefix = `SK${number}${type}`
+        const routes = await manager.find(Schema.TbSrmRoute, { select: { keyId: true, alias: true, type: true } })
+        const maxSequence = routes.reduce((max, route) => {
+            if (route.type !== type) return max
+            return Math.max(max, this.parseAliasSequence(route.alias, prefix))
+        }, 0)
+        return `${prefix}${this.formatAliasSequence(maxSequence + 1)}`
+    }
+
+    /** 把别名尾部4位序号转换为连续序号；不符合当前规则的历史别名返回 0。 */
+    private parseAliasSequence(alias: string, prefix: string): number {
+        const code = alias?.startsWith(prefix) ? alias.slice(prefix.length) : ''
+        const single = /^([A-Z])(\d{3})$/.exec(code)
+        if (single && Number(single[2]) > 0) return (single[1].charCodeAt(0) - 65) * 999 + Number(single[2])
+        const double = /^([A-Z])([A-Z])(\d{2})$/.exec(code)
+        if (double && Number(double[3]) > 0) {
+            const group = (double[1].charCodeAt(0) - 65) * 26 + double[2].charCodeAt(0) - 65
+            return 26 * 999 + group * 99 + Number(double[3])
+        }
+        return 0
+    }
+
+    /** 把连续序号格式化为4位别名序号：A001-Z999，之后 AA01-ZZ99。 */
+    private formatAliasSequence(sequence: number): string {
+        const singleCapacity = 26 * 999
+        const capacity = singleCapacity + 26 * 26 * 99
+        if (!Number.isInteger(sequence) || sequence < 1 || sequence > capacity) {
+            throw new ConflictException('当前工号该类型路由别名序号已用完')
+        }
+        if (sequence <= singleCapacity) {
+            const index = sequence - 1
+            return `${String.fromCharCode(65 + Math.floor(index / 999))}${String((index % 999) + 1).padStart(3, '0')}`
+        }
+        const index = sequence - singleCapacity - 1
+        const group = Math.floor(index / 99)
+        return `${String.fromCharCode(65 + Math.floor(group / 26), 65 + (group % 26))}${String((index % 99) + 1).padStart(2, '0')}`
     }
 
     /** 服务间凭据。 */
