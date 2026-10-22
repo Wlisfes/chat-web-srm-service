@@ -4,7 +4,6 @@ import {
     TbSrmRoute,
     TbSrmRouteApp,
     TbSrmRouteChannel,
-    TbSrmRouteRule,
     TbSrmSimbank,
     TbSrmSimbankMessage,
     TbSrmSimbankPort,
@@ -25,7 +24,6 @@ export const SRM_MYSQL_ENTITIES = [
     TbSrmChannel,
     TbSrmChannelPort,
     TbSrmRoute,
-    TbSrmRouteRule,
     TbSrmRouteChannel,
     TbSrmRouteApp
 ]
