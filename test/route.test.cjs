@@ -153,6 +153,13 @@ function routeTables() {
             { keyId: 15, alias: 'PH-SOTP-1', countryKeyId: 1008, type: 'SOTP', status: 'enable' }
         ],
         TbSrmChannelPort: [11, 12, 13, 14, 15].map(channelKeyId => ({ channelKeyId, status: 'enable' })),
+        TbSrmRouteRule: [1, 2, 3].map(routeKeyId => ({
+            keyId: routeKeyId,
+            routeKeyId,
+            sort: 0,
+            status: 'enable',
+            conditions: [{ field: 'type', operator: 'in', value: ['MRKT', 'NTFY', 'SOTP'] }]
+        })),
         TbSrmRouteChannel: [
             { keyId: 1, routeKeyId: 1, channelKeyId: 15, priority: 1, weight: 100, status: 'enable' },
             { keyId: 2, routeKeyId: 3, channelKeyId: 11, priority: 1, weight: 60, status: 'enable' },
@@ -200,4 +207,78 @@ test('选路：主通道都不可用时降级到下一优先级', async () => {
 test('选路：定向路由命中时不回落', async () => {
     const result = await createService(createManager(routeTables())).httpBaseSrmRoutePreview({ appKeyId: 1001, countryKeyId: 1008 })
     assert.deepEqual([result.matched, result.fallback, result.steps.length], [true, false, 1])
+})
+
+test('规则组：组内且、组间或，路由没有命中规则时跳过', async () => {
+    const tables = routeTables()
+    tables.TbSrmRouteRule = [
+        { keyId: 1, routeKeyId: 1, sort: 0, status: 'enable', conditions: [{ field: 'country', operator: 'in', value: ['1008'] }] },
+        {
+            keyId: 2,
+            routeKeyId: 3,
+            sort: 0,
+            status: 'enable',
+            conditions: [
+                { field: 'country', operator: 'in', value: ['1007'] },
+                { field: 'type', operator: 'in', value: ['SOTP'] },
+                { field: 'prefix', operator: 'not_prefix', value: ['85290'] }
+            ]
+        },
+        {
+            keyId: 3,
+            routeKeyId: 2,
+            sort: 0,
+            status: 'enable',
+            conditions: [{ field: 'prefix', operator: 'prefix', value: ['85290'] }]
+        },
+        { keyId: 4, routeKeyId: 2, sort: 1, status: 'disable', conditions: [{ field: 'country', operator: 'in', value: ['1007'] }] }
+    ]
+    const service = createService(createManager(tables))
+    const normal = await service.httpBaseSrmRoutePreview({ appKeyId: 1001, countryKeyId: 1007, phone: '+85291234567' })
+    assert.deepEqual(
+        normal.steps.map(step => [step.routeOptions.name, step.admitted, step.matched]),
+        [
+            ['专线', false, false],
+            ['通用A', true, true]
+        ]
+    )
+    const blocked = await service.httpBaseSrmRoutePreview({ appKeyId: 1001, countryKeyId: 1007, phone: '85290123456' })
+    assert.deepEqual(
+        blocked.steps.map(step => [step.routeOptions.name, step.admitted, step.matched]),
+        [
+            ['专线', false, false],
+            ['通用A', false, false],
+            ['通用B', true, true]
+        ]
+    )
+    const marketing = await service.httpBaseSrmRoutePreview({ appKeyId: 1001, countryKeyId: 1007, type: 'MRKT', phone: '85291234567' })
+    assert.equal(marketing.matched, false)
+    assert.match(marketing.message, /没有路由的规则组匹配/)
+})
+
+test('没有启用规则组的路由不接收短信', async () => {
+    const tables = routeTables()
+    tables.TbSrmRouteRule = []
+    const result = await createService(createManager(tables)).httpBaseSrmRoutePreview({ appKeyId: 1001, countryKeyId: 1007 })
+    assert.equal(result.matched, false)
+    assert.ok(result.steps.every(step => !step.admitted))
+})
+
+test('新增规则组校验字段与操作符、类型取值、号码段和方向', async () => {
+    const tables = { TbSrmRoute: [{ keyId: 1, name: '通用', type: 'general', status: 'enable' }], TbSrmRouteRule: [] }
+    const service = createService(createManager(tables))
+    const create = conditions => service.httpBaseSrmCreateRouteRule(principal, { routeKeyId: 1, sort: 2, conditions })
+    await assert.rejects(() => create([{ field: 'prefix', operator: 'in', value: ['852'] }]), /不支持操作符/)
+    await assert.rejects(() => create([{ field: 'type', operator: 'in', value: ['XXXX'] }]), /短信类型取值/)
+    await assert.rejects(() => create([{ field: 'prefix', operator: 'prefix', value: ['85a'] }]), /号码段只能是/)
+    await assert.rejects(() => create([{ field: 'country', operator: 'in', value: ['9999'] }]), /方向不存在：9999/)
+    const rule = await create([
+        { field: 'country', operator: 'in', value: ['1007', '1007', ' '] },
+        { field: 'prefix', operator: 'prefix', value: ['+85291'] }
+    ])
+    assert.equal(rule.sort, 2)
+    assert.deepEqual(rule.conditions, [
+        { field: 'country', operator: 'in', value: ['1007'] },
+        { field: 'prefix', operator: 'prefix', value: ['85291'] }
+    ])
 })

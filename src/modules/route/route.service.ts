@@ -7,6 +7,9 @@ import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 import * as RouteDto from '@/modules/route/dto/route.dto'
 
+/** 参与规则匹配的短信属性。 */
+type RouteMessage = { countryKeyId: number; type: Schema.TbSrmChannelType; phone: string }
+
 @Injectable()
 export class RouteService {
     constructor(
@@ -24,6 +27,9 @@ export class RouteService {
             statusOptions: Schema.TbSrmRouteStatusDefinition.options,
             routeTypeOptions: Schema.TbSrmRouteTypeDefinition.options,
             channelStatusOptions: Schema.TbSrmRouteChannelStatusDefinition.options,
+            ruleStatusOptions: Schema.TbSrmRouteRuleStatusDefinition.options,
+            ruleFieldOptions: Schema.TbSrmRouteRuleFieldDefinition.options,
+            ruleOperatorOptions: Schema.TbSrmRouteRuleOperatorDefinition.options,
             typeOptions: Schema.TbSrmChannelTypeDefinition.options
         }
     }
@@ -68,13 +74,14 @@ export class RouteService {
         })
     }
 
-    /** 删除路由：仍有短信应用绑定时不能删除；同时删除路由下的通道配置。 */
+    /** 删除路由：仍有短信应用绑定时不能删除；同时删除路由下的规则组和通道配置。 */
     public async httpBaseSrmDeleteRoute(input: RouteDto.RouteKeyDto): Promise<{ success: boolean }> {
         return this.repository.manager.transaction(async manager => {
             const route = await this.findRouteRequired(manager, input.keyId)
             if (await manager.existsBy(Schema.TbSrmRouteApp, { routeKeyId: route.keyId })) {
                 throw new ConflictException('路由仍有短信应用绑定，请先解绑或改绑')
             }
+            await manager.delete(Schema.TbSrmRouteRule, { routeKeyId: route.keyId })
             await manager.delete(Schema.TbSrmRouteChannel, { routeKeyId: route.keyId })
             await manager.delete(Schema.TbSrmRoute, { keyId: route.keyId })
             return { success: true }
@@ -86,7 +93,7 @@ export class RouteService {
         return this.findRouteRequired(this.repository.manager, input.keyId)
     }
 
-    /** 路由分页：通用路由在前并按排序，附带通道数、覆盖的方向和类型、绑定短信应用数。 */
+    /** 路由分页：通用路由在前并按排序，附带规则摘要、通道数、覆盖的方向和类型、绑定短信应用数。 */
     public async httpBaseSrmColumnRoute(input: RouteDto.ListRouteDto): Promise<PageResult<RouteDto.RouteColumnResponseDto>> {
         const { page, size } = fetchUntiePagination(input)
         return this.database.builder(this.repository, async qb => {
@@ -98,19 +105,27 @@ export class RouteService {
             qb.skip((page - 1) * size).take(size)
             const [list, total] = await qb.getManyAndCount()
             const keyIds = list.map(item => item.keyId)
-            const [channels, apps] = keyIds.length
+            const [channels, rules, apps] = keyIds.length
                 ? await Promise.all([
                       this.findRouteChannels(keyIds),
+                      this.repository.manager.find(Schema.TbSrmRouteRule, {
+                          where: { routeKeyId: In(keyIds), status: Schema.TbSrmRouteRuleStatus.ENABLE },
+                          order: { sort: 'ASC', keyId: 'ASC' }
+                      }),
                       this.repository.manager.find(Schema.TbSrmRouteApp, {
                           select: { routeKeyId: true },
                           where: { routeKeyId: In(keyIds) }
                       })
                   ])
-                : [[], []]
+                : [[], [], []]
+            const countryNames = await this.findCountryNames(rules.flatMap(rule => this.countryKeyIdsOf(rule)))
             const rows = list.map(item => {
                 const own = channels.filter(channel => channel.routeKeyId === item.keyId)
+                const ownRules = rules.filter(rule => rule.routeKeyId === item.keyId)
                 return {
                     ...item,
+                    ruleCount: ownRules.length,
+                    ruleSummary: ownRules.map(rule => `(${this.describeRule(rule, countryNames)})`).join(' 或 '),
                     channelCount: own.length,
                     activeChannelCount: own.filter(channel => channel.active).length,
                     coverages: this.groupCoverages(own),
@@ -136,6 +151,61 @@ export class RouteService {
             select: { keyId: true, name: true, alias: true, type: true, sort: true, status: true },
             order: { type: 'ASC', sort: 'ASC', createTime: 'ASC', keyId: 'ASC' }
         })
+    }
+
+    /* ------------------------------ 规则组 ------------------------------ */
+
+    /** 新增规则组：校验条件字段、操作符和取值。 */
+    public async httpBaseSrmCreateRouteRule(principal: AuthPrincipal, input: RouteDto.CreateRouteRuleDto): Promise<Schema.TbSrmRouteRule> {
+        const conditions = await this.normalizeConditions(input.conditions)
+        return this.repository.manager.transaction(async manager => {
+            await this.findRouteRequired(manager, input.routeKeyId)
+            return manager.save(
+                manager.create(Schema.TbSrmRouteRule, {
+                    routeKeyId: input.routeKeyId,
+                    sort: input.sort ?? 0,
+                    conditions,
+                    status: input.status ?? Schema.TbSrmRouteRuleStatus.ENABLE,
+                    remark: input.remark?.trim() || null,
+                    createBy: principal.uid,
+                    modifyBy: principal.uid
+                })
+            )
+        })
+    }
+
+    /** 编辑规则组：可修改排序、条件、状态和备注。 */
+    public async httpBaseSrmUpdateRouteRule(principal: AuthPrincipal, input: RouteDto.UpdateRouteRuleDto): Promise<Schema.TbSrmRouteRule> {
+        const conditions = await this.normalizeConditions(input.conditions)
+        return this.repository.manager.transaction(async manager => {
+            const rule = await manager.findOneBy(Schema.TbSrmRouteRule, { keyId: input.keyId })
+            if (!rule) throw new NotFoundException('规则组不存在')
+            manager.merge(Schema.TbSrmRouteRule, rule, {
+                sort: input.sort ?? rule.sort,
+                conditions,
+                status: input.status,
+                remark: input.remark?.trim() || null,
+                modifyBy: principal.uid
+            })
+            return manager.save(rule)
+        })
+    }
+
+    /** 删除规则组。 */
+    public async httpBaseSrmDeleteRouteRule(input: RouteDto.RouteRuleKeyDto): Promise<{ success: boolean }> {
+        const result = await this.repository.manager.delete(Schema.TbSrmRouteRule, { keyId: input.keyId })
+        if (!result.affected) throw new NotFoundException('规则组不存在')
+        return { success: true }
+    }
+
+    /** 路由下的规则组：附带中文描述。 */
+    public async httpBaseSrmListRouteRule(input: RouteDto.ListRouteRuleDto): Promise<RouteDto.RouteRuleResponseDto[]> {
+        const rules = await this.repository.manager.find(Schema.TbSrmRouteRule, {
+            where: { routeKeyId: input.routeKeyId },
+            order: { sort: 'ASC', keyId: 'ASC' }
+        })
+        const countryNames = await this.findCountryNames(rules.flatMap(rule => this.countryKeyIdsOf(rule)))
+        return rules.map(rule => ({ ...rule, description: this.describeRule(rule, countryNames) }))
     }
 
     /* ------------------------------ 路由通道 ------------------------------ */
@@ -297,7 +367,8 @@ export class RouteService {
 
     /**
      * 选路预览：先查短信应用绑定的定向路由，再按排序依次查启用的通用路由。
-     * 每条路由内筛出方向和类型一致的通道，取最高可用优先级内的通道按权重分流；没有可用通道就尝试下一条路由。
+     * 短信满足路由任意一个启用的规则组才进入该路由；进入后筛出方向和类型一致的通道，
+     * 取最高可用优先级内的通道按权重分流。没有进入或没有可用通道就尝试下一条路由。
      */
     public async httpBaseSrmRoutePreview(input: RouteDto.RoutePreviewDto): Promise<RouteDto.RoutePreviewResponseDto> {
         const [app] = await this.smsFeignClient.httpBaseSmsColumnAppResolver(this.authorization(), { keyIds: [input.appKeyId] })
@@ -316,8 +387,22 @@ export class RouteService {
         if (routes.length === 0) {
             return { ...base, matched: false, fallback: false, message: '没有可用的路由：应用未绑定启用的定向路由，也没有启用的通用路由' }
         }
-        const channels = await this.findRouteChannels(routes.map(route => route.keyId))
+        const routeKeyIds = routes.map(route => route.keyId)
+        const [channels, rules] = await Promise.all([
+            this.findRouteChannels(routeKeyIds),
+            this.repository.manager.find(Schema.TbSrmRouteRule, {
+                where: { routeKeyId: In(routeKeyIds), status: Schema.TbSrmRouteRuleStatus.ENABLE },
+                order: { sort: 'ASC', keyId: 'ASC' }
+            })
+        ])
+        const countryNames = await this.findCountryNames(rules.flatMap(rule => this.countryKeyIdsOf(rule)))
+        const message: RouteMessage = { countryKeyId: input.countryKeyId, type, phone: input.phone?.replace(/^\+/, '').trim() ?? '' }
         for (const route of routes) {
+            const rule = rules.find(item => item.routeKeyId === route.keyId && this.matchRule(item, message))
+            if (!rule) {
+                base.steps.push({ routeOptions: this.pickRoute(route), admitted: false, channels: [], matched: false })
+                continue
+            }
             const own = channels.filter(
                 item =>
                     item.routeKeyId === route.keyId &&
@@ -325,7 +410,13 @@ export class RouteService {
                     item.channelOptions?.type === type
             )
             const matched = own.some(item => item.active)
-            base.steps.push({ routeOptions: this.pickRoute(route), channels: this.markSelected(own), matched })
+            base.steps.push({
+                routeOptions: this.pickRoute(route),
+                admitted: true,
+                ruleDescription: this.describeRule(rule, countryNames),
+                channels: this.markSelected(own),
+                matched
+            })
             if (matched) {
                 const targeted = route.keyId === bound?.keyId
                 return {
@@ -336,10 +427,99 @@ export class RouteService {
                 }
             }
         }
-        return { ...base, matched: false, fallback: !!bound, message: '所有路由都没有该方向和类型的可用通道，短信将进入待分配' }
+        const admitted = base.steps.some(step => step.admitted)
+        return {
+            ...base,
+            matched: false,
+            fallback: !!bound,
+            message: admitted
+                ? '命中规则的路由都没有该方向和类型的可用通道，短信将进入待分配'
+                : '没有路由的规则组匹配这条短信，短信将进入待分配'
+        }
     }
 
     /* ------------------------------ 内部工具 ------------------------------ */
+
+    /** 校验并规范化组内条件：字段与操作符匹配，取值去空去重，方向必须存在、类型必须合法、号码段必须是数字。 */
+    private async normalizeConditions(conditions: Schema.TbSrmRouteRuleCondition[]): Promise<Schema.TbSrmRouteRuleCondition[]> {
+        const { COUNTRY, TYPE, PREFIX } = Schema.TbSrmRouteRuleField
+        const { IN, NOT_IN, PREFIX: STARTS, NOT_PREFIX } = Schema.TbSrmRouteRuleOperator
+        const result = conditions.map(condition => {
+            const value = [...new Set(condition.value.map(item => String(item).replace(/^\+/, '').trim()).filter(Boolean))]
+            if (value.length === 0) throw new BadRequestException('条件取值不能为空')
+            const allowed = condition.field === PREFIX ? [STARTS, NOT_PREFIX] : [IN, NOT_IN]
+            if (!allowed.includes(condition.operator))
+                throw new BadRequestException(`条件字段 ${condition.field} 不支持操作符 ${condition.operator}`)
+            if (
+                condition.field === TYPE &&
+                value.some(item => !Object.values(Schema.TbSrmChannelType).includes(item as Schema.TbSrmChannelType))
+            ) {
+                throw new BadRequestException('短信类型取值只能是 MRKT、NTFY、SOTP')
+            }
+            if (condition.field === PREFIX && value.some(item => !/^\d{1,15}$/.test(item))) {
+                throw new BadRequestException('号码段只能是1-15位数字')
+            }
+            if (condition.field === COUNTRY && value.some(item => !/^\d+$/.test(item)))
+                throw new BadRequestException('方向取值必须是国家/地区主键')
+            return { field: condition.field, operator: condition.operator, value }
+        })
+        const countryKeyIds = [...new Set(result.filter(item => item.field === COUNTRY).flatMap(item => item.value.map(Number)))]
+        if (countryKeyIds.length > 0) {
+            const found = await this.findCountryNames(countryKeyIds)
+            const missing = countryKeyIds.filter(keyId => !found.has(keyId))
+            if (missing.length > 0) throw new BadRequestException(`方向不存在：${missing.join('、')}`)
+        }
+        return result
+    }
+
+    /** 判断短信是否命中规则组：组内条件全部满足；没有条件的规则组不命中。 */
+    private matchRule(rule: Schema.TbSrmRouteRule, message: RouteMessage): boolean {
+        if (!rule.conditions?.length) return false
+        return rule.conditions.every(condition => {
+            const { field, operator, value } = condition
+            if (field === Schema.TbSrmRouteRuleField.PREFIX) {
+                const hit = !!message.phone && value.some(item => message.phone.startsWith(item))
+                return operator === Schema.TbSrmRouteRuleOperator.PREFIX ? hit : !hit
+            }
+            const actual = field === Schema.TbSrmRouteRuleField.COUNTRY ? String(message.countryKeyId) : message.type
+            const hit = value.includes(actual)
+            return operator === Schema.TbSrmRouteRuleOperator.IN ? hit : !hit
+        })
+    }
+
+    /** 规则组中引用的方向主键。 */
+    private countryKeyIdsOf(rule: Schema.TbSrmRouteRule): number[] {
+        return (rule.conditions ?? [])
+            .filter(item => item.field === Schema.TbSrmRouteRuleField.COUNTRY)
+            .flatMap(item => item.value.map(Number))
+    }
+
+    /** 批量查询方向中文名。 */
+    private async findCountryNames(keyIds: number[]): Promise<Map<number, string>> {
+        const unique = [...new Set(keyIds)].filter(keyId => Number.isInteger(keyId) && keyId > 0)
+        const names = new Map<number, string>()
+        for (let index = 0; index < unique.length; index += 100) {
+            const countries = await this.skylineFeignClient.httpBaseSkylineColumnCountryResolver(this.authorization(), {
+                keyIds: unique.slice(index, index + 100)
+            })
+            for (const country of countries) names.set(country.keyId, country.cnName)
+        }
+        return names
+    }
+
+    /** 规则组描述：条件之间用“且”连接。 */
+    private describeRule(rule: Schema.TbSrmRouteRule, countryNames: Map<number, string>): string {
+        const fieldLabel = Object.fromEntries(Schema.TbSrmRouteRuleFieldDefinition.options.map(item => [item.value, item.label]))
+        const operatorLabel = Object.fromEntries(Schema.TbSrmRouteRuleOperatorDefinition.options.map(item => [item.value, item.label]))
+        return (rule.conditions ?? [])
+            .map(condition => {
+                const values = condition.value.map(item =>
+                    condition.field === Schema.TbSrmRouteRuleField.COUNTRY ? (countryNames.get(Number(item)) ?? item) : item
+                )
+                return `${fieldLabel[condition.field]} ${operatorLabel[condition.operator]} ${values.join('/')}`
+            })
+            .join(' 且 ')
+    }
 
     /** 查询路由下的通道：附带通道信息、可用状态和分流占比（同路由、同方向、同类型、同优先级的可用通道之间计算）。 */
     private async findRouteChannels(routeKeyIds: number[]): Promise<RouteDto.RouteChannelResponseDto[]> {

@@ -11,6 +11,9 @@ export class RouteEnumsResponseDto extends EnumsResponseDto({
     statusOptions: { description: '路由状态选项', example: Schema.TbSrmRouteStatusDefinition.options },
     routeTypeOptions: { description: '路由类型选项', example: Schema.TbSrmRouteTypeDefinition.options },
     channelStatusOptions: { description: '路由通道状态选项', example: Schema.TbSrmRouteChannelStatusDefinition.options },
+    ruleStatusOptions: { description: '规则组状态选项', example: Schema.TbSrmRouteRuleStatusDefinition.options },
+    ruleFieldOptions: { description: '条件字段选项', example: Schema.TbSrmRouteRuleFieldDefinition.options },
+    ruleOperatorOptions: { description: '条件操作符选项', example: Schema.TbSrmRouteRuleOperatorDefinition.options },
     typeOptions: { description: '短信类型选项', example: Schema.TbSrmChannelTypeDefinition.options }
 }) {}
 
@@ -64,8 +67,17 @@ export class RouteCoverageDto {
     activeChannelCount: number
 }
 
-/** 路由列表项：附带通道数、可用通道数、覆盖的方向和类型、绑定短信应用数。 */
+/** 路由列表项：附带规则摘要、通道数、可用通道数、覆盖的方向和类型、绑定短信应用数。 */
 export class RouteColumnResponseDto extends IntersectionType(Schema.TbSrmRouteDto, feign.SkylineUserOptionsResponseDto) {
+    @ApiProperty({ description: '启用的规则组数：为 0 时路由不接收任何短信', example: 2 })
+    ruleCount: number
+
+    @ApiProperty({
+        description: '规则摘要：启用的规则组之间是“或”，组内条件之间是“且”',
+        example: '(方向 属于 中国 且 类型 属于 MRKT) 或 (号码段 以 85291 开头)'
+    })
+    ruleSummary: string
+
     @ApiProperty({ description: '通道数', example: 6 })
     channelCount: number
 
@@ -87,6 +99,32 @@ export class RoutePageResponseDto extends PageResponseDataDto {
 
 /** 路由下拉项：GET /route/select。 */
 export class RouteSelectResponseDto extends PickType(Schema.TbSrmRouteDto, ['keyId', 'name', 'alias', 'type', 'sort', 'status'] as const) {}
+
+/* ------------------------------ 规则组 ------------------------------ */
+
+/** 新增规则组入参：POST /route/rule/create。 */
+export class CreateRouteRuleDto extends IntersectionType(
+    PickType(Schema.TbSrmRouteRuleDto, ['routeKeyId', 'conditions'] as const),
+    PartialType(PickType(Schema.TbSrmRouteRuleDto, ['sort', 'status', 'remark'] as const))
+) {}
+
+/** 编辑规则组入参：POST /route/rule/update；可修改排序、条件、状态和备注。 */
+export class UpdateRouteRuleDto extends IntersectionType(
+    PickType(Schema.TbSrmRouteRuleDto, ['keyId', 'conditions', 'status'] as const),
+    PartialType(PickType(Schema.TbSrmRouteRuleDto, ['sort', 'remark'] as const))
+) {}
+
+/** 规则组主键入参：POST /route/rule/delete。 */
+export class RouteRuleKeyDto extends PickType(Schema.TbSrmRouteRuleDto, ['keyId'] as const) {}
+
+/** 规则组列表入参：GET /route/rule/list。 */
+export class ListRouteRuleDto extends PickType(Schema.TbSrmRouteRuleDto, ['routeKeyId'] as const) {}
+
+/** 规则组列表项：附带规则组的中文描述。 */
+export class RouteRuleResponseDto extends Schema.TbSrmRouteRuleDto {
+    @ApiProperty({ description: '规则组描述', example: '方向 属于 中国 且 类型 属于 MRKT' })
+    description: string
+}
 
 /* ------------------------------ 路由通道 ------------------------------ */
 
@@ -199,8 +237,18 @@ export class RouteAppPageResponseDto extends PageResponseDataDto {
 
 /* ------------------------------ 选路预览 ------------------------------ */
 
-/** 选路预览入参：POST /route/preview；type 不传时使用短信应用类型。 */
+/** 选路预览入参：POST /route/preview；type 不传时使用短信应用类型，phone 用于号码段条件。 */
 export class RoutePreviewDto extends PickType(Schema.TbSrmRouteAppDto, ['appKeyId'] as const) {
+    @ApiProperty({
+        description: '收件号码：含国际区号，可带 + 号；不传时“以…开头”条件不满足、“不以…开头”条件满足',
+        required: false,
+        example: '85291234567'
+    })
+    @IsOptional()
+    @IsString({ message: '收件号码必须是字符串' })
+    @MaxLength(24, { message: '收件号码长度不能超过24位' })
+    phone?: string
+
     @ApiProperty({ description: '方向：Skyline 国家/地区主键', example: 1007 })
     @Type(() => Number)
     @IsInt({ message: '方向必须是整数' })
@@ -224,10 +272,16 @@ export class RoutePreviewStepDto {
     @ApiProperty({ description: '路由信息', type: RouteSelectResponseDto })
     routeOptions: RouteSelectResponseDto
 
-    @ApiProperty({ description: '该路由内与方向和类型一致的通道', type: [RoutePreviewChannelDto] })
+    @ApiProperty({ description: '是否通过规则进入该路由', example: true })
+    admitted: boolean
+
+    @ApiProperty({ description: '命中的规则组描述，没有进入路由时为空', required: false, example: '方向 属于 中国香港' })
+    ruleDescription?: string
+
+    @ApiProperty({ description: '该路由内与方向和类型一致的通道，没有进入路由时为空', type: [RoutePreviewChannelDto] })
     channels: RoutePreviewChannelDto[]
 
-    @ApiProperty({ description: '是否命中：有可用通道', example: true })
+    @ApiProperty({ description: '是否命中：进入路由且有可用通道', example: true })
     matched: boolean
 }
 
