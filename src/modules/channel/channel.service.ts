@@ -266,19 +266,71 @@ export class ChannelService {
         })
     }
 
-    /** 可绑定端口：未绑定任何通道、已激活且激活方向与通道方向一致的端口，可按设备筛选。 */
-    public async httpBaseSrmAvailableChannelPort(input: ChannelDto.ListAvailablePortDto): Promise<PageResult<Schema.TbSrmSimbankPort>> {
-        const { page, size } = fetchUntiePagination(input)
+    /** 可绑定端口：未绑定任何通道、已激活，且激活方向、设备归属人与通道一致。 */
+    public async httpBaseSrmAvailableChannelPort(
+        input: ChannelDto.ListAvailablePortDto
+    ): Promise<PageResult<ChannelDto.OwnerCountryPortItemDto>> {
         const channel = await this.findChannelRequired(this.repository.manager, input.channelKeyId)
+        return this.findOwnerCountryPorts(
+            { countryKeyId: channel.countryKeyId, ownerUserUid: channel.ownerUserUid, page: input.page, size: input.size },
+            input.simbankKeyId
+        )
+    }
+
+    /** 按激活方向和设备归属人查询可绑定端口，供通道绑定下拉使用。 */
+    public async httpBaseSrmSelectChannelPort(
+        input: ChannelDto.ListOwnerCountryPortDto
+    ): Promise<PageResult<ChannelDto.OwnerCountryPortItemDto>> {
+        return this.findOwnerCountryPorts(input)
+    }
+
+    /** 未绑定、已激活，且激活方向和设备归属人匹配的端口。 */
+    private async findOwnerCountryPorts(
+        input: Pick<ChannelDto.ListOwnerCountryPortDto, 'countryKeyId' | 'ownerUserUid' | 'page' | 'size'>,
+        simbankKeyId?: number
+    ): Promise<PageResult<ChannelDto.OwnerCountryPortItemDto>> {
+        const { page, size } = fetchUntiePagination(input)
         return this.database.builder(this.simbankPortRepository, async qb => {
-            qb.where(`NOT EXISTS (SELECT 1 FROM tb_srm_channel_port cp WHERE cp.port_key_id = t.keyId)`)
-            qb.andWhere('t.activateStatus = :activateStatus', { activateStatus: Schema.TbSrmSimbankPortActivateStatus.ACTIVE })
-            qb.andWhere('t.countryKeyId = :countryKeyId', { countryKeyId: channel.countryKeyId })
-            if (isNotEmpty(input.simbankKeyId)) qb.andWhere('t.simbankKeyId = :simbankKeyId', { simbankKeyId: input.simbankKeyId })
+            qb.innerJoin(Schema.TbSrmSimbank, 'simbank', 'simbank.keyId = t.simbankKeyId')
+            qb.where('NOT EXISTS (SELECT 1 FROM tb_srm_channel_port cp WHERE cp.port_key_id = t.key_id)')
+            qb.andWhere('t.activateStatus = :activateStatus', {
+                activateStatus: Schema.TbSrmSimbankPortActivateStatus.ACTIVE
+            })
+            qb.andWhere('t.countryKeyId = :countryKeyId', {
+                countryKeyId: input.countryKeyId
+            })
+            qb.andWhere('simbank.ownerUserUid = :ownerUserUid', {
+                ownerUserUid: input.ownerUserUid
+            })
+            if (isNotEmpty(simbankKeyId)) {
+                qb.andWhere('t.simbankKeyId = :simbankKeyId', { simbankKeyId })
+            }
             qb.orderBy('t.simbankKeyId', 'DESC').addOrderBy('t.port', 'ASC')
             qb.skip((page - 1) * size).take(size)
             const [list, total] = await qb.getManyAndCount()
-            return fetchResolver({ page, size, total, list })
+            const simbankKeyIds = [...new Set(list.map(item => item.simbankKeyId))]
+            const simbanks = simbankKeyIds.length
+                ? await this.simbankRepository.find({
+                      select: { keyId: true, alias: true, name: true },
+                      where: { keyId: In(simbankKeyIds) }
+                  })
+                : []
+            return fetchResolver({
+                page,
+                size,
+                total,
+                list: list.map(item => {
+                    const simbank = simbanks.find(device => device.keyId === item.simbankKeyId)
+                    return {
+                        keyId: item.keyId,
+                        port: item.port,
+                        sim: item.sim,
+                        simbankKeyId: item.simbankKeyId,
+                        countryKeyId: item.countryKeyId,
+                        label: [simbank?.alias, `端口${item.port}`, item.sim].filter(Boolean).join(' / ')
+                    }
+                })
+            })
         })
     }
 

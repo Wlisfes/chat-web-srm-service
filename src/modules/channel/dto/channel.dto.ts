@@ -140,3 +140,37 @@ export class AvailablePortPageResponseDto extends PageResponseDataDto {
     @ApiProperty({ description: '可绑定端口列表', type: [Schema.TbSrmSimbankPortDto] })
     list: Schema.TbSrmSimbankPortDto[]
 }
+
+/** 按方向和归属人查询端口入参：POST /channel/port/select。 */
+export class ListOwnerCountryPortDto extends IntersectionType(
+    PageDto,
+    PickType(Schema.TbSrmSimbankPortDto, ['countryKeyId'] as const),
+    PickType(Schema.TbSrmChannelDto, ['ownerUserUid'] as const)
+) {}
+
+/** 按方向和归属人查询到的端口。 */
+export class OwnerCountryPortItemDto {
+    @ApiProperty({ description: '端口ID', example: 1002401 })
+    keyId: number
+
+    @ApiProperty({ description: '端口号', example: 1 })
+    port: number
+
+    @ApiProperty({ description: 'SIM卡号', required: false, example: '85291234567' })
+    sim?: string
+
+    @ApiProperty({ description: '设备ID', example: 100201 })
+    simbankKeyId: number
+
+    @ApiProperty({ description: '激活方向', example: 1007 })
+    countryKeyId: number
+
+    @ApiProperty({ description: '下拉展示：设备别名 / 端口号 / SIM卡号', example: 'SSK1024SMSA001 / 1 / 85291234567' })
+    label: string
+}
+
+/** 按方向和归属人查询端口响应：POST /channel/port/select。 */
+export class OwnerCountryPortPageResponseDto extends PageResponseDataDto {
+    @ApiProperty({ description: '端口列表', type: [OwnerCountryPortItemDto] })
+    list: OwnerCountryPortItemDto[]
+}
