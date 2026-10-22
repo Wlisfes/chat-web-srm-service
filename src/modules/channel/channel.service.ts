@@ -158,7 +158,10 @@ export class ChannelService {
         })
     }
 
-    /** 批量绑定端口：端口必须存在、已激活且激活方向与通道方向一致，且未绑定任何通道。 */
+    /**
+     * 更新通道端口绑定：以本次提交的端口集合为准，保留已选端口、删除未选端口、新增新选端口。
+     * 端口必须存在、已激活且激活方向与通道方向一致；已绑定到其他通道的端口会被拒绝。
+     */
     public async httpBaseSrmBindChannelPort(principal: AuthPrincipal, input: ChannelDto.BindChannelPortDto): Promise<{ count: number }> {
         return this.repository.manager.transaction(async manager => {
             const channel = await this.channelUtilsService.findChannelRequired(manager, input.channelKeyId)
@@ -172,23 +175,42 @@ export class ChannelService {
                 throw new BadRequestException(`端口未激活或激活方向与通道不一致：${mismatched.map(port => port.port).join('、')}`)
             }
             const bound = await manager.find(Schema.TbSrmChannelPort, { where: { portKeyId: In(portKeyIds) } })
-            if (bound.length > 0) {
-                const numbers = ports.filter(port => bound.some(item => item.portKeyId === port.keyId)).map(port => port.port)
+            const conflicts = bound.filter(item => item.channelKeyId !== channel.keyId)
+            if (conflicts.length > 0) {
+                const numbers = ports.filter(port => conflicts.some(item => item.portKeyId === port.keyId)).map(port => port.port)
                 throw new ConflictException(`端口已绑定其他通道：${numbers.join('、')}`)
             }
-            await manager.insert(
-                Schema.TbSrmChannelPort,
-                ports.map(port => ({
-                    channelKeyId: input.channelKeyId,
-                    portKeyId: port.keyId,
-                    simbankKeyId: port.simbankKeyId,
-                    weight: 1,
-                    status: Schema.TbSrmChannelPortStatus.ENABLE,
-                    createBy: principal.uid,
-                    modifyBy: principal.uid
-                }))
-            )
-            return { count: ports.length }
+            const current = await manager.find(Schema.TbSrmChannelPort, { where: { channelKeyId: channel.keyId } })
+            const selected = new Set(portKeyIds)
+            const removed = current.filter(item => !selected.has(item.portKeyId))
+            if (removed.length > 0) {
+                if (channel.status === Schema.TbSrmChannelStatus.ENABLE) {
+                    const remaining = current.filter(
+                        item => selected.has(item.portKeyId) && item.status === Schema.TbSrmChannelPortStatus.ENABLE
+                    )
+                    if (remaining.length === 0) {
+                        throw new ConflictException(`通道【${channel.alias}】启用中，至少保留一个启用端口，或先停用通道`)
+                    }
+                }
+                await manager.delete(Schema.TbSrmChannelPort, { keyId: In(removed.map(item => item.keyId)) })
+            }
+            const existed = new Set(bound.filter(item => item.channelKeyId === channel.keyId).map(item => item.portKeyId))
+            const added = ports.filter(port => !existed.has(port.keyId))
+            if (added.length > 0) {
+                await manager.insert(
+                    Schema.TbSrmChannelPort,
+                    added.map(port => ({
+                        channelKeyId: channel.keyId,
+                        portKeyId: port.keyId,
+                        simbankKeyId: port.simbankKeyId,
+                        weight: 1,
+                        status: Schema.TbSrmChannelPortStatus.ENABLE,
+                        createBy: principal.uid,
+                        modifyBy: principal.uid
+                    }))
+                )
+            }
+            return { count: portKeyIds.length }
         })
     }
 

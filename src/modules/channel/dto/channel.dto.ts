@@ -71,7 +71,7 @@ export class ChannelSelectResponseDto extends PickType(Schema.TbSrmChannelDto, [
     'status'
 ] as const) {}
 
-/** 批量绑定端口入参：POST /channel/port/bind；端口必须已激活且激活方向与通道方向一致，已绑定到其他通道的端口会被拒绝。 */
+/** 更新通道端口绑定入参：POST /channel/port/bind；以本次提交的端口集合为准，端口必须已激活且激活方向与通道方向一致，已绑定到其他通道的端口会被拒绝。 */
 export class BindChannelPortDto extends PickType(Schema.TbSrmChannelPortDto, ['channelKeyId'] as const) {
     @ApiProperty({ description: '端口ID集合', type: Number, isArray: true, example: [1002401, 1002402] })
     @IsArray({ message: '端口ID集合必须是数组' })

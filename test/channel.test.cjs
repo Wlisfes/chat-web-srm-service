@@ -146,27 +146,95 @@ test('端口已绑定其他通道时整批拒绝', async () => {
     )
 })
 
-test('绑定端口写入设备快照，默认权重 1 并启用', async () => {
-    const inserted = []
-    const manager = {
-        findOneBy: async () => ({ keyId: 1, countryKeyId: 1007 }),
-        find: async entity =>
-            entity.name === 'TbSrmSimbankPort'
-                ? [{ keyId: 11, port: 1, simbankKeyId: 100, activateStatus: 'active', countryKeyId: 1007 }]
-                : [],
-        insert: async (_entity, rows) => inserted.push(...rows)
+/** 假 manager：按 entity 类型返回端口、绑定数据。 */
+function bindManager({
+    channel = { keyId: 1, alias: 'TSK1024-MRKT-A001', countryKeyId: 1007, status: 'disable' },
+    ports = [],
+    bound = [],
+    current = [],
+    inserted,
+    deleted
+} = {}) {
+    return {
+        findOneBy: async () => channel,
+        find: async (entity, options) => {
+            if (entity.name === 'TbSrmSimbankPort') {
+                const keyIds = options?.where?.keyId?._value
+                return keyIds ? ports.filter(item => keyIds.includes(item.keyId)) : ports
+            }
+            const portKeyIds = options?.where?.portKeyId?._value
+            if (portKeyIds) return bound.filter(item => portKeyIds.includes(item.portKeyId))
+            return current
+        },
+        insert: async (_entity, rows) => inserted && inserted.push(...rows),
+        delete: async (entity, where) => deleted && deleted.push([entity.name, where.where ?? where])
     }
-    const result = await createService(manager).httpBaseSrmBindChannelPort(principal, { channelKeyId: 1, portKeyIds: [11, 11] })
-    assert.equal(result.count, 1)
-    assert.deepEqual(inserted[0], {
-        channelKeyId: 1,
-        portKeyId: 11,
-        simbankKeyId: 100,
-        weight: 1,
-        status: 'enable',
-        createBy: '30001',
-        modifyBy: '30001'
+}
+
+test('更新端口绑定：已选端口保持不变，不重复插入', async () => {
+    const inserted = []
+    const deleted = []
+    const manager = bindManager({
+        ports: [
+            { keyId: 11, port: 1, simbankKeyId: 100, activateStatus: 'active', countryKeyId: 1007 },
+            { keyId: 12, port: 2, simbankKeyId: 100, activateStatus: 'active', countryKeyId: 1007 }
+        ],
+        current: [
+            { keyId: 1, channelKeyId: 1, portKeyId: 11, status: 'enable' },
+            { keyId: 2, channelKeyId: 1, portKeyId: 12, status: 'enable' }
+        ],
+        bound: [
+            { keyId: 1, channelKeyId: 1, portKeyId: 11, status: 'enable' },
+            { keyId: 2, channelKeyId: 1, portKeyId: 12, status: 'enable' }
+        ],
+        inserted,
+        deleted
     })
+    const result = await createService(manager).httpBaseSrmBindChannelPort(principal, { channelKeyId: 1, portKeyIds: [11, 12] })
+    assert.equal(result.count, 2)
+    assert.deepEqual(inserted, [])
+    assert.deepEqual(deleted, [])
+})
+
+test('更新端口绑定：新选端口写入设备快照，未选端口被删除', async () => {
+    const inserted = []
+    const deleted = []
+    const manager = bindManager({
+        ports: [
+            { keyId: 11, port: 1, simbankKeyId: 100, activateStatus: 'active', countryKeyId: 1007 },
+            { keyId: 12, port: 2, simbankKeyId: 101, activateStatus: 'active', countryKeyId: 1007 }
+        ],
+        current: [
+            { keyId: 1, channelKeyId: 1, portKeyId: 11, status: 'enable' },
+            { keyId: 2, channelKeyId: 1, portKeyId: 12, status: 'enable' }
+        ],
+        bound: [{ keyId: 1, channelKeyId: 1, portKeyId: 11, status: 'enable' }],
+        inserted,
+        deleted
+    })
+    const result = await createService(manager).httpBaseSrmBindChannelPort(principal, { channelKeyId: 1, portKeyIds: [12] })
+    assert.equal(result.count, 1)
+    assert.deepEqual(inserted, [
+        { channelKeyId: 1, portKeyId: 12, simbankKeyId: 101, weight: 1, status: 'enable', createBy: '30001', modifyBy: '30001' }
+    ])
+    assert.equal(deleted.length, 1)
+    assert.equal(deleted[0][0], 'TbSrmChannelPort')
+})
+
+test('更新端口绑定：启用中的通道不能删到一个启用端口都不剩', async () => {
+    const manager = bindManager({
+        channel: { keyId: 1, alias: 'TSK1024-MRKT-A001', countryKeyId: 1007, status: 'enable' },
+        ports: [
+            { keyId: 11, port: 1, simbankKeyId: 100, activateStatus: 'active', countryKeyId: 1007 },
+            { keyId: 12, port: 2, simbankKeyId: 100, activateStatus: 'active', countryKeyId: 1007 }
+        ],
+        current: [{ keyId: 1, channelKeyId: 1, portKeyId: 11, status: 'enable' }],
+        bound: []
+    })
+    await assert.rejects(
+        () => createService(manager).httpBaseSrmBindChannelPort(principal, { channelKeyId: 1, portKeyIds: [12] }),
+        /至少保留一个启用端口/
+    )
 })
 test('启用中的通道不能停用到一个启用端口都不剩', async () => {
     const manager = {

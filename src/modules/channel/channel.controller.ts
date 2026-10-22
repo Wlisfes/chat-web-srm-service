@@ -84,7 +84,7 @@ export class ChannelController {
     }
 
     @ApiServiceDecorator(Post('port/bind'), {
-        operation: { summary: '通道批量绑定端口' },
+        operation: { summary: '更新通道端口绑定' },
         request: { source: 'body', type: ChannelDto.BindChannelPortDto },
         response: { type: SuccessResponseDataDto, description: '绑定数量' }
     })
