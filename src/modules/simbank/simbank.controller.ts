@@ -174,4 +174,13 @@ export class SimbankController {
     public async httpBaseSrmColumnSimbankMessage(@Body() input: SimbankDto.ListSimbankMessageDto) {
         return this.simbankService.httpBaseSrmColumnSimbankMessage(input)
     }
+
+    @ApiServiceDecorator(Post('port/select'), {
+        operation: { summary: '按方向和归属人查询可绑定端口' },
+        request: { source: 'body', type: SimbankDto.ListOwnerCountryPortDto },
+        response: { type: SimbankDto.OwnerCountryPortItemDto, isArray: true, description: '匹配方向和归属人的全部可绑定端口，不分页' }
+    })
+    public async httpBaseSrmSelectSimbankPort(@Body() input: SimbankDto.ListOwnerCountryPortDto) {
+        return this.simbankService.httpBaseSrmSelectSimbankPort(input)
+    }
 }

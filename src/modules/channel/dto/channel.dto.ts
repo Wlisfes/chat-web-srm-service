@@ -10,18 +10,18 @@ import * as Schema from '@wlisfes/chat-web-base-schema'
 export class ChannelEnumsResponseDto extends EnumsResponseDto({
     statusOptions: { description: '通道状态选项', example: Schema.TbSrmChannelStatusDefinition.options },
     portStatusOptions: { description: '绑定状态选项', example: Schema.TbSrmChannelPortStatusDefinition.options },
-    typeOptions: { description: '通道类型选项', example: Schema.TbSrmChannelTypeDefinition.options }
+    typeOptions: { description: '通道类型选项', example: Schema.TbSmsAppTypeDefinition.options }
 }) {}
 
-/** 新增通道入参：POST /channel/create；别名按 创建人工号-方向MCC-类型-序号 自动生成，负责人默认当前登录人，新建通道默认停用。 */
+/** 新增通道入参：POST /channel/create；别名按 TSK + 归属人工号 + 类型 + 分段序号自动生成，归属人默认当前登录人，新建通道默认停用。 */
 export class CreateChannelDto extends IntersectionType(
-    PickType(Schema.TbSrmChannelDto, ['countryKeyId', 'type', 'sendInterval', 'maxRetry'] as const),
+    PickType(Schema.TbSrmChannelDto, ['name', 'countryKeyId', 'type', 'sendInterval', 'maxRetry'] as const),
     PartialType(PickType(Schema.TbSrmChannelDto, ['ownerUserUid', 'remark'] as const))
 ) {}
 
 /** 编辑通道入参：POST /channel/update；别名、方向、类型创建后不可修改。 */
 export class UpdateChannelDto extends IntersectionType(
-    PickType(Schema.TbSrmChannelDto, ['keyId', 'ownerUserUid', 'sendInterval', 'maxRetry'] as const),
+    PickType(Schema.TbSrmChannelDto, ['keyId', 'name', 'ownerUserUid', 'sendInterval', 'maxRetry'] as const),
     PartialType(PickType(Schema.TbSrmChannelDto, ['remark'] as const))
 ) {}
 
@@ -37,7 +37,7 @@ export class ListChannelDto extends IntersectionType(
     PartialType(PickType(Schema.TbSrmChannelDto, ['alias', 'type', 'countryKeyId', 'ownerUserUid', 'status'] as const))
 ) {}
 
-/** 通道列表项：附带方向、负责人、绑定端口数、启用端口数和引用路由数。 */
+/** 通道列表项：附带方向、归属人、绑定端口数、启用端口数和引用路由数。 */
 export class ChannelColumnResponseDto extends IntersectionType(Schema.TbSrmChannelDto, feign.SkylineUserOptionsResponseDto) {
     @ApiProperty({ description: '绑定端口数', example: 32 })
     portCount: number
@@ -51,7 +51,7 @@ export class ChannelColumnResponseDto extends IntersectionType(Schema.TbSrmChann
     @ApiProperty({ description: '方向信息', required: false, type: feign.SkylineCountrySummaryResponseDto })
     countryKeyIdOptions?: feign.SkylineCountrySummaryResponseDto
 
-    @ApiProperty({ description: '负责人信息', required: false, type: feign.SkylineUserOptionResponseDto })
+    @ApiProperty({ description: '归属人信息', required: false, type: feign.SkylineUserOptionResponseDto })
     ownerUserUidOptions?: feign.SkylineUserOptionResponseDto
 }
 
@@ -65,12 +65,13 @@ export class ChannelPageResponseDto extends PageResponseDataDto {
 export class ChannelSelectResponseDto extends PickType(Schema.TbSrmChannelDto, [
     'keyId',
     'alias',
+    'name',
     'type',
     'countryKeyId',
     'status'
 ] as const) {}
 
-/** 批量绑定端口入参：POST /channel/port/bind；端口必须已激活且激活方向与通道方向一致，已绑定到其他通道的端口会被拒绝。 */
+/** 更新通道端口绑定入参：POST /channel/port/bind；以本次提交的端口集合为准，端口必须已激活且激活方向与通道方向一致，已绑定到其他通道的端口会被拒绝。 */
 export class BindChannelPortDto extends PickType(Schema.TbSrmChannelPortDto, ['channelKeyId'] as const) {
     @ApiProperty({ description: '端口ID集合', type: Number, isArray: true, example: [1002401, 1002402] })
     @IsArray({ message: '端口ID集合必须是数组' })
@@ -84,17 +85,6 @@ export class BindChannelPortDto extends PickType(Schema.TbSrmChannelPortDto, ['c
 
 /** 编辑端口绑定入参：POST /channel/port/update。 */
 export class UpdateChannelPortDto extends PickType(Schema.TbSrmChannelPortDto, ['keyId', 'weight', 'status'] as const) {}
-
-/** 解绑端口入参：POST /channel/port/unbind。 */
-export class UnbindChannelPortDto {
-    @ApiProperty({ description: '绑定记录ID集合', type: Number, isArray: true, example: [1] })
-    @IsArray({ message: '绑定记录ID集合必须是数组' })
-    @ArrayNotEmpty({ message: '请选择要解绑的端口' })
-    @Type(() => Number)
-    @IsInt({ each: true, message: '绑定记录ID必须是整数' })
-    @Min(1, { each: true, message: '绑定记录ID必须大于0' })
-    keyIds: number[]
-}
 
 /** 通道端口分页入参：POST /channel/port/column；name 匹配 SIM、ICCID、设备名称或别名。 */
 export class ListChannelPortDto extends IntersectionType(
@@ -124,18 +114,8 @@ export class ChannelPortPageResponseDto extends PageResponseDataDto {
     list: ChannelPortColumnResponseDto[]
 }
 
-/** 可绑定端口入参：POST /channel/port/available；只返回未绑定任何通道、已激活且激活方向与通道方向一致的端口。 */
-export class ListAvailablePortDto extends IntersectionType(PageDto, PickType(Schema.TbSrmChannelPortDto, ['channelKeyId'] as const)) {
-    @ApiProperty({ description: '设备ID', required: false, example: 100201 })
-    @IsOptional()
-    @Type(() => Number)
-    @IsInt({ message: '设备ID必须是整数' })
-    @Min(1, { message: '设备ID必须大于0' })
-    simbankKeyId?: number
-}
-
-/** 可绑定端口分页响应：POST /channel/port/available。 */
-export class AvailablePortPageResponseDto extends PageResponseDataDto {
-    @ApiProperty({ description: '可绑定端口列表', type: [Schema.TbSrmSimbankPortDto] })
-    list: Schema.TbSrmSimbankPortDto[]
+/** 通道详情响应：GET /channel/resolve；附带该通道已绑定的端口。 */
+export class ChannelResolverResponseDto extends Schema.TbSrmChannelDto {
+    @ApiProperty({ description: '绑定的端口列表', type: [Schema.TbSrmChannelPortDto] })
+    list: Schema.TbSrmChannelPortDto[]
 }

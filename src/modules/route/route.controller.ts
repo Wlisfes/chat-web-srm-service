@@ -50,7 +50,7 @@ export class RouteController {
     @ApiServiceDecorator(Get('resolve'), {
         operation: { summary: '获取路由详情' },
         request: { source: 'query', type: RouteDto.RouteKeyDto },
-        response: { type: Schema.TbSrmRouteDto, description: '路由详情' }
+        response: { type: RouteDto.RouteResolverResponseDto, description: '路由详情（含绑定的通道列表）' }
     })
     public async httpBaseSrmRouteResolver(@Query() input: RouteDto.RouteKeyDto) {
         return this.routeService.httpBaseSrmRouteResolver(input)
@@ -113,16 +113,13 @@ export class RouteController {
 
     /* ------------------------------ 路由通道 ------------------------------ */
 
-    @ApiServiceDecorator(Post('channel/create'), {
-        operation: { summary: '路由批量加入通道' },
-        request: { source: 'body', type: RouteDto.CreateRouteChannelDto },
-        response: { type: RouteDto.RouteCountResponseDto, description: '加入数量' }
+    @ApiServiceDecorator(Post('channel/bind'), {
+        operation: { summary: '更新路由通道绑定' },
+        request: { source: 'body', type: RouteDto.BindRouteChannelDto },
+        response: { type: RouteDto.RouteCountResponseDto, description: '绑定的通道数量' }
     })
-    public async httpBaseSrmCreateRouteChannel(
-        @CurrentPrincipal() principal: AuthPrincipal,
-        @Body() input: RouteDto.CreateRouteChannelDto
-    ) {
-        return this.routeService.httpBaseSrmCreateRouteChannel(principal, input)
+    public async httpBaseSrmBindRouteChannel(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.BindRouteChannelDto) {
+        return this.routeService.httpBaseSrmBindRouteChannel(principal, input)
     }
 
     @ApiServiceDecorator(Post('channel/update'), {

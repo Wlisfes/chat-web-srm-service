@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { InjectRepository, DataBaseService, EntityManager, In, Repository } from '@wlisfes/chat-web-base-schema/database'
-import { isNotEmpty } from '@wlisfes/chat-web-base-schema/utils'
+import { isNotEmpty, omit } from '@wlisfes/chat-web-base-schema/utils'
 import { Faker, en, zh_CN } from '@faker-js/faker'
 import { UserUtilsService } from '@/modules/user/user.utils.service'
 import * as constants from '@/modules/simbank/simbank.constants'
@@ -27,6 +27,16 @@ export class SimbankUtilsService {
     public fetchNormalizeMac(mac: string): string {
         const a = mac.replace(/[^0-9A-Fa-f]/g, '').toUpperCase()
         return (a.match(/.{2}/g) ?? []).join(':')
+    }
+
+    /** 按归属人查询设备摘要，供通道端口下拉等场景按设备过滤使用。 */
+    public async findByOwnerUserUid(ownerUserUid: string) {
+        const simbankOptions = new Map<number, Omit<Schema.TbSrmSimbank, 'createBy' | 'modifyBy' | 'createTime' | 'modifyTime'>>()
+        const simbanks = await this.repository.find({ where: { ownerUserUid } })
+        for (const simbank of simbanks.flat()) {
+            simbankOptions.set(simbank.keyId, omit(simbank, ['createBy', 'modifyBy', 'createTime', 'modifyTime']))
+        }
+        return { simbanks, simbankOptions }
     }
 
     /** 获取设备创建命名锁，锁与事务连接绑定，最多等待 5 秒。 */

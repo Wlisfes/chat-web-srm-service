@@ -60,7 +60,7 @@ export class ChannelController {
     @ApiServiceDecorator(Get('resolve'), {
         operation: { summary: '获取通道详情' },
         request: { source: 'query', type: ChannelDto.ChannelKeyDto },
-        response: { type: Schema.TbSrmChannelDto, description: '通道详情' }
+        response: { type: ChannelDto.ChannelResolverResponseDto, description: '通道详情（含绑定的端口）' }
     })
     public async httpBaseSrmChannelResolver(@Query() input: ChannelDto.ChannelKeyDto) {
         return this.channelService.httpBaseSrmChannelResolver(input)
@@ -84,7 +84,7 @@ export class ChannelController {
     }
 
     @ApiServiceDecorator(Post('port/bind'), {
-        operation: { summary: '通道批量绑定端口' },
+        operation: { summary: '更新通道端口绑定' },
         request: { source: 'body', type: ChannelDto.BindChannelPortDto },
         response: { type: SuccessResponseDataDto, description: '绑定数量' }
     })
@@ -104,15 +104,6 @@ export class ChannelController {
         return this.channelService.httpBaseSrmUpdateChannelPort(principal, input)
     }
 
-    @ApiServiceDecorator(Post('port/unbind'), {
-        operation: { summary: '通道批量解绑端口' },
-        request: { source: 'body', type: ChannelDto.UnbindChannelPortDto },
-        response: { type: SuccessResponseDataDto, description: '解绑数量' }
-    })
-    public async httpBaseSrmUnbindChannelPort(@Body() input: ChannelDto.UnbindChannelPortDto) {
-        return this.channelService.httpBaseSrmUnbindChannelPort(input)
-    }
-
     @ApiServiceDecorator(Post('port/column'), {
         operation: { summary: '分页查询通道端口' },
         request: { source: 'body', type: ChannelDto.ListChannelPortDto },
@@ -120,14 +111,5 @@ export class ChannelController {
     })
     public async httpBaseSrmColumnChannelPort(@Body() input: ChannelDto.ListChannelPortDto) {
         return this.channelService.httpBaseSrmColumnChannelPort(input)
-    }
-
-    @ApiServiceDecorator(Post('port/available'), {
-        operation: { summary: '分页查询可绑定端口' },
-        request: { source: 'body', type: ChannelDto.ListAvailablePortDto },
-        response: { type: ChannelDto.AvailablePortPageResponseDto, description: '未绑定任何通道的端口' }
-    })
-    public async httpBaseSrmAvailableChannelPort(@Body() input: ChannelDto.ListAvailablePortDto) {
-        return this.channelService.httpBaseSrmAvailableChannelPort(input)
     }
 }

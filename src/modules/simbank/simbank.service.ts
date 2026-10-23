@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { InjectRepository, DataBaseService, Repository } from '@wlisfes/chat-web-base-schema/database'
-import { PageResult, isNotEmpty, fetchResolver, fetchUntiePagination } from '@wlisfes/chat-web-base-schema/utils'
+import { PageResult, isNotEmpty, fetchResolver, fetchUntiePagination, fetchVagueKeyword } from '@wlisfes/chat-web-base-schema/utils'
+import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { SimbankUtilsService } from '@/modules/simbank/simbank.utils.service'
 import * as SimbankDto from '@/modules/simbank/dto/simbank.dto'
 import * as Schema from '@wlisfes/chat-web-base-schema'
@@ -452,5 +452,48 @@ export class SimbankService {
             throw new NotFoundException('端口不存在')
         }
         return port
+    }
+    /**
+     * 按激活方向、设备归属人查询可绑定到通道的端口；不分页，只返回已激活、已插卡、尚未绑定任何通道的端口。
+     * vague 模糊匹配 SIM、IMEI、ICCID；SIM 兼容传入开头的 + 号。
+     */
+    public async httpBaseSrmSelectSimbankPort(input: SimbankDto.ListOwnerCountryPortDto): Promise<SimbankDto.OwnerCountryPortItemDto[]> {
+        return await this.simbankUtilsService.findByOwnerUserUid(input.ownerUserUid).then(async ({ simbanks, simbankOptions }) => {
+            if (simbanks.length === 0) {
+                return []
+            }
+            return this.database.builder(this.portRepository, async qb => {
+                const vague = fetchVagueKeyword(input.vague)
+                qb.where('t.simbankKeyId IN (:...simbankKeyIds)', {
+                    simbankKeyIds: simbanks.map(item => item.keyId)
+                })
+                qb.andWhere('t.countryKeyId = :countryKeyId', {
+                    countryKeyId: input.countryKeyId
+                })
+                qb.andWhere('t.activateStatus = :activateStatus', {
+                    activateStatus: Schema.TbSrmSimbankPortActivateStatus.ACTIVE
+                })
+                qb.andWhere('t.insertStatus = :insertStatus', {
+                    insertStatus: Schema.TbSrmSimbankPortInsertStatus.INSERTED
+                })
+                if (isNotEmpty(vague)) {
+                    qb.andWhere('(t.sim LIKE :vague OR t.imei LIKE :vague OR t.iccid LIKE :vague)', {
+                        vague: `%${vague}%`
+                    })
+                }
+                await this.database.selection(qb, [
+                    ['t', ['keyId', 'port', 'sim', 'imei', 'iccid']],
+                    ['t', ['countryKeyId', 'simbankKeyId', 'insertStatus', 'activateStatus', 'status']]
+                ])
+                qb.orderBy('t.simbankKeyId', 'DESC').addOrderBy('t.port', 'ASC')
+                return await qb.getMany().then(items => {
+                    return items.map(item => {
+                        const simbank = simbankOptions.get(item.simbankKeyId)
+                        const showName = [simbank.alias, `端口[${item.port}]`].filter(isNotEmpty).join(' - ')
+                        return { ...item, showName, simbankOptions: simbank }
+                    })
+                })
+            })
+        })
     }
 }
