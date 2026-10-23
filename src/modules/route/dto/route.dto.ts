@@ -1,6 +1,6 @@
 import { ApiProperty, IntersectionType, PartialType, PickType } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator'
+import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsInt, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator'
 import { EnumsResponseDto, PageResponseDataDto } from '@wlisfes/chat-web-base-schema/decorator'
 import { PageDto } from '@wlisfes/chat-web-base-schema/utils'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
@@ -18,7 +18,7 @@ export class RouteEnumsResponseDto extends EnumsResponseDto({
     typeOptions: { description: '短信类型选项', example: Schema.TbSmsAppTypeDefinition.options }
 }) {}
 
-/** 数量响应：批量绑定、解绑短信应用。 */
+/** 数量响应：批量绑定短信应用。 */
 export class RouteCountResponseDto {
     @ApiProperty({ description: '处理数量', example: 2 })
     count: number
@@ -153,12 +153,6 @@ export class BindRouteChannelDto extends PickType(Schema.TbSrmRouteChannelDto, [
     channels: BindRouteChannelItemDto[]
 }
 
-/** 编辑路由通道入参：POST /route/channel/update。 */
-export class UpdateRouteChannelDto extends PickType(Schema.TbSrmRouteChannelDto, ['keyId', 'priority', 'weight', 'status'] as const) {}
-
-/** 路由通道主键入参：POST /route/channel/delete。 */
-export class RouteChannelKeyDto extends PickType(Schema.TbSrmRouteChannelDto, ['keyId'] as const) {}
-
 /** 路由通道列表入参：GET /route/channel/list。 */
 export class ListRouteChannelDto extends PickType(Schema.TbSrmRouteChannelDto, ['routeKeyId'] as const) {}
 
@@ -208,23 +202,6 @@ export class BindRouteAppDto extends PickType(Schema.TbSrmRouteAppDto, ['routeKe
     apps: BindRouteAppItemDto[]
 }
 
-/** 解绑短信应用入参：POST /route/app/unbind；解绑后应用按优先级使用同类型路由。 */
-export class UnbindRouteAppDto {
-    @ApiProperty({ description: '绑定记录主键集合', type: Number, isArray: true, example: [1] })
-    @IsArray({ message: '绑定记录集合必须是数组' })
-    @ArrayNotEmpty({ message: '请选择要解绑的短信应用' })
-    @ArrayMaxSize(100, { message: '单次最多解绑100个短信应用' })
-    @Type(() => Number)
-    @IsInt({ each: true, message: '绑定记录主键必须是整数' })
-    @Min(1, { each: true, message: '绑定记录主键必须大于0' })
-    keyIds: number[]
-}
-
-/** 短信应用绑定分页入参：POST /route/app/column。 */
-export class ListRouteAppDto extends IntersectionType(
-    PageDto,
-    PartialType(PickType(Schema.TbSrmRouteAppDto, ['routeKeyId', 'userKeyId', 'appKeyId'] as const))
-) {}
 
 /** 客户摘要。 */
 export class RouteUserOptionDto {
@@ -248,84 +225,4 @@ export class RouteAppColumnResponseDto extends IntersectionType(Schema.TbSrmRout
 
     @ApiProperty({ description: '路由信息', required: false, type: RouteSelectResponseDto })
     routeKeyIdOptions?: RouteSelectResponseDto
-}
-
-/** 短信应用绑定分页响应：POST /route/app/column。 */
-export class RouteAppPageResponseDto extends PageResponseDataDto {
-    @ApiProperty({ description: '短信应用绑定列表', type: [RouteAppColumnResponseDto] })
-    list: RouteAppColumnResponseDto[]
-}
-
-/* ------------------------------ 选路预览 ------------------------------ */
-
-/** 选路预览入参：POST /route/preview；type 不传时使用短信应用类型，phone 用于号码段条件。 */
-export class RoutePreviewDto extends PickType(Schema.TbSrmRouteAppDto, ['appKeyId'] as const) {
-    @ApiProperty({
-        description: '收件号码：含国际区号，可带 + 号；不传时“以…开头”条件不满足、“不以…开头”条件满足',
-        required: false,
-        example: '85291234567'
-    })
-    @IsOptional()
-    @IsString({ message: '收件号码必须是字符串' })
-    @MaxLength(24, { message: '收件号码长度不能超过24位' })
-    phone?: string
-
-    @ApiProperty({ description: '方向：Skyline 国家/地区主键', example: 1007 })
-    @Type(() => Number)
-    @IsInt({ message: '方向必须是整数' })
-    @Min(1, { message: '方向必须大于0' })
-    countryKeyId: number
-
-    @ApiProperty({ description: '短信类型：不传时使用短信应用类型', required: false, enum: Schema.TbSmsAppType })
-    @IsOptional()
-    @IsEnum(Schema.TbSmsAppType, { message: '短信类型格式错误' })
-    type?: Schema.TbSmsAppType
-}
-
-/** 选路预览通道：selected 表示本次实际参与分流的通道。 */
-export class RoutePreviewChannelDto extends RouteChannelResponseDto {
-    @ApiProperty({ description: '是否参与本次分流：当前最高可用优先级内的可用通道', example: true })
-    selected: boolean
-}
-
-/** 选路预览中每条被尝试的路由。 */
-export class RoutePreviewStepDto {
-    @ApiProperty({ description: '路由信息', type: RouteSelectResponseDto })
-    routeOptions: RouteSelectResponseDto
-
-    @ApiProperty({ description: '是否通过规则进入该路由', example: true })
-    admitted: boolean
-
-    @ApiProperty({ description: '命中的规则组描述，没有进入路由时为空', required: false, example: '方向 属于 中国香港' })
-    ruleDescription?: string
-
-    @ApiProperty({ description: '该路由内与方向和类型一致的通道，没有进入路由时为空', type: [RoutePreviewChannelDto] })
-    channels: RoutePreviewChannelDto[]
-
-    @ApiProperty({ description: '是否命中：进入路由且有可用通道', example: true })
-    matched: boolean
-}
-
-/** 选路预览响应：POST /route/preview。 */
-export class RoutePreviewResponseDto {
-    @ApiProperty({ description: '是否找到可用通道', example: true })
-    matched: boolean
-
-    @ApiProperty({ description: '选路说明', example: '命中绑定路由【大客户线路】' })
-    message: string
-
-    @ApiProperty({ description: '本次选路使用的短信类型', enum: Schema.TbSmsAppType })
-    type: Schema.TbSmsAppType
-
-    @ApiProperty({ description: '短信应用信息', type: feign.SmsAppSummaryResponseDto })
-    appOptions: feign.SmsAppSummaryResponseDto
-
-    @ApiProperty({ description: '是否回落到其他同类型路由', example: false })
-    fallback: boolean
-
-    @ApiProperty({
-        description: '按顺序尝试的路由：绑定的同类型路由在前，其他同类型路由按优先级在后，直到命中为止',
-        type: [RoutePreviewStepDto]
-    })
-    steps: RoutePreviewStepDto[]
 }

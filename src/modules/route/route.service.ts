@@ -6,7 +6,7 @@ import { PageResult, fetchResolver, fetchUntiePagination, isNotEmpty } from '@wl
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 import * as RouteDto from '@/modules/route/dto/route.dto'
-import { RouteUtilsService, type RouteMessage } from '@/modules/route/route.utils.service'
+import { RouteUtilsService } from '@/modules/route/route.utils.service'
 
 @Injectable()
 export class RouteService {
@@ -157,13 +157,6 @@ export class RouteService {
         })
     }
 
-    /** 路由下拉：按短信类型和优先级排序。 */
-    public async httpBaseSrmSelectRoute(): Promise<RouteDto.RouteSelectResponseDto[]> {
-        return this.repository.find({
-            select: { keyId: true, name: true, alias: true, type: true, priority: true, status: true },
-            order: { type: 'ASC', priority: 'ASC', createTime: 'ASC', keyId: 'ASC' }
-        })
-    }
 
     /* ------------------------------ 规则组 ------------------------------ */
 
@@ -279,29 +272,6 @@ export class RouteService {
         })
     }
 
-    /** 编辑路由通道的优先级、权重和状态。 */
-    public async httpBaseSrmUpdateRouteChannel(
-        principal: AuthPrincipal,
-        input: RouteDto.UpdateRouteChannelDto
-    ): Promise<Schema.TbSrmRouteChannel> {
-        return this.repository.manager.transaction(async manager => {
-            const link = await manager.findOneBy(Schema.TbSrmRouteChannel, { keyId: input.keyId })
-            if (!link) throw new NotFoundException('路由通道不存在')
-            link.priority = input.priority
-            link.weight = input.weight
-            link.status = input.status
-            link.modifyBy = principal.uid
-            return manager.save(link)
-        })
-    }
-
-    /** 从路由中移除通道。 */
-    public async httpBaseSrmDeleteRouteChannel(input: RouteDto.RouteChannelKeyDto): Promise<{ success: boolean }> {
-        const result = await this.repository.manager.delete(Schema.TbSrmRouteChannel, { keyId: input.keyId })
-        if (!result.affected) throw new NotFoundException('路由通道不存在')
-        return { success: true }
-    }
-
     /** 路由通道列表：按方向、类型、优先级排序，附带通道信息、是否可用和分流占比。 */
     public async httpBaseSrmListRouteChannel(input: RouteDto.ListRouteChannelDto): Promise<RouteDto.RouteChannelResponseDto[]> {
         const rows = await this.routeUtilsService.findRouteChannels([input.routeKeyId])
@@ -396,109 +366,5 @@ export class RouteService {
         }
         await feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, rows, ['createBy', 'modifyBy'])
         return rows
-    }
-
-    /** 解绑短信应用：解绑后应用按优先级使用同类型路由，路由类型不变。 */
-    public async httpBaseSrmUnbindRouteApp(input: RouteDto.UnbindRouteAppDto): Promise<RouteDto.RouteCountResponseDto> {
-        const result = await this.repository.manager.delete(Schema.TbSrmRouteApp, { keyId: In([...new Set(input.keyIds)]) })
-        return { count: result.affected ?? 0 }
-    }
-
-    /** 短信应用绑定分页：附带短信应用、客户和路由信息。 */
-    public async httpBaseSrmColumnRouteApp(input: RouteDto.ListRouteAppDto): Promise<PageResult<RouteDto.RouteAppColumnResponseDto>> {
-        const { page, size } = fetchUntiePagination(input)
-        const repository = this.repository.manager.getRepository(Schema.TbSrmRouteApp)
-        return this.database.builder(repository, async qb => {
-            if (isNotEmpty(input.routeKeyId)) qb.andWhere('t.routeKeyId = :routeKeyId', { routeKeyId: input.routeKeyId })
-            if (isNotEmpty(input.userKeyId)) qb.andWhere('t.userKeyId = :userKeyId', { userKeyId: input.userKeyId })
-            if (isNotEmpty(input.appKeyId)) qb.andWhere('t.appKeyId = :appKeyId', { appKeyId: input.appKeyId })
-            qb.orderBy('t.modifyTime', 'DESC').addOrderBy('t.keyId', 'DESC')
-            qb.skip((page - 1) * size).take(size)
-            const [list, total] = await qb.getManyAndCount()
-            const rows = await this.attachRouteAppOptions(list.map(item => ({ ...item })))
-            return fetchResolver({ page, size, total, list: rows })
-        })
-    }
-
-    /* ------------------------------ 选路预览 ------------------------------ */
-
-    /**
-     * 选路预览：先试绑定的同类型路由，再按优先级依次试其他启用的同类型路由。
-     * 短信满足路由任意一个启用的规则组才进入该路由；进入后筛出方向和类型一致的通道，
-     * 取最高可用优先级内的通道按权重分流。没有进入或没有可用通道就尝试下一条路由。
-     */
-    public async httpBaseSrmRoutePreview(input: RouteDto.RoutePreviewDto): Promise<RouteDto.RoutePreviewResponseDto> {
-        const [app] = await this.smsFeignClient.httpBaseSmsColumnAppResolver(this.routeUtilsService.authorization(), {
-            keyIds: [input.appKeyId]
-        })
-        if (!app) throw new NotFoundException('短信应用不存在')
-        const type = input.type ?? app.type
-        const binding = await this.repository.manager.findOneBy(Schema.TbSrmRouteApp, { appKeyId: app.keyId })
-        const activeBinding = binding && binding.status !== Schema.TbSrmRouteAppStatus.DISABLE ? binding : null
-        const bound = activeBinding ? await this.repository.findOneBy({ keyId: activeBinding.routeKeyId }) : null
-        const routeType = type as unknown as Schema.TbSrmRouteType
-        const sameType = await this.repository.find({
-            where: { type: routeType, status: Schema.TbSrmRouteStatus.ENABLE },
-            order: { priority: 'ASC', createTime: 'ASC', keyId: 'ASC' }
-        })
-        const boundMatches = bound?.status === Schema.TbSrmRouteStatus.ENABLE && bound.type === routeType ? bound : null
-        const routes = [boundMatches, ...sameType.filter(route => route.keyId !== boundMatches?.keyId)].filter(
-            (route): route is Schema.TbSrmRoute => !!route
-        )
-        const base = { type, appOptions: app, steps: [] as RouteDto.RoutePreviewStepDto[] }
-        if (routes.length === 0) {
-            return { ...base, matched: false, fallback: false, message: '没有可用的路由：没有启用的同类型路由' }
-        }
-        const routeKeyIds = routes.map(route => route.keyId)
-        const [channels, rules] = await Promise.all([
-            this.routeUtilsService.findRouteChannels(routeKeyIds),
-            this.repository.manager.find(Schema.TbSrmRouteRule, {
-                where: { routeKeyId: In(routeKeyIds), status: Schema.TbSrmRouteRuleStatus.ENABLE },
-                order: { sort: 'ASC', keyId: 'ASC' }
-            })
-        ])
-        const countryNames = await this.routeUtilsService.findCountryNames(
-            rules.flatMap(rule => this.routeUtilsService.countryKeyIdsOf(rule))
-        )
-        const message: RouteMessage = { countryKeyId: input.countryKeyId, type, phone: input.phone?.replace(/^\+/, '').trim() ?? '' }
-        for (const route of routes) {
-            const rule = rules.find(item => item.routeKeyId === route.keyId && this.routeUtilsService.matchRule(item, message))
-            if (!rule) {
-                base.steps.push({ routeOptions: this.routeUtilsService.pickRoute(route), admitted: false, channels: [], matched: false })
-                continue
-            }
-            const own = channels.filter(
-                item =>
-                    item.routeKeyId === route.keyId &&
-                    item.channelOptions?.countryKeyId === input.countryKeyId &&
-                    item.channelOptions?.type === type
-            )
-            const matched = own.some(item => item.active)
-            base.steps.push({
-                routeOptions: this.routeUtilsService.pickRoute(route),
-                admitted: true,
-                ruleDescription: this.routeUtilsService.describeRule(rule, countryNames),
-                channels: this.routeUtilsService.markSelected(own),
-                matched
-            })
-            if (matched) {
-                const boundHit = route.keyId === boundMatches?.keyId
-                return {
-                    ...base,
-                    matched: true,
-                    fallback: !!boundMatches && !boundHit,
-                    message: `命中${boundHit ? '绑定' : '同类型'}路由【${route.name}】`
-                }
-            }
-        }
-        const admitted = base.steps.some(step => step.admitted)
-        return {
-            ...base,
-            matched: false,
-            fallback: !!bound,
-            message: admitted
-                ? '命中规则的路由都没有该方向和类型的可用通道，短信将进入待分配'
-                : '没有路由的规则组匹配这条短信，短信将进入待分配'
-        }
     }
 }

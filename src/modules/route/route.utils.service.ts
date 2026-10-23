@@ -7,9 +7,6 @@ import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 import * as RouteDto from '@/modules/route/dto/route.dto'
 
-/** 参与规则匹配的短信属性。 */
-export type RouteMessage = { countryKeyId: number; type: Schema.TbSmsAppType; phone: string }
-
 @Injectable()
 export class RouteUtilsService {
     constructor(
@@ -46,22 +43,6 @@ export class RouteUtilsService {
         }
         return result
     }
-
-    /** 判断短信是否命中规则组：组内条件全部满足；没有条件的规则组不命中。 */
-    public matchRule(rule: Schema.TbSrmRouteRule, message: RouteMessage): boolean {
-        if (!rule.conditions?.length) return false
-        return rule.conditions.every(condition => {
-            const { field, operator, value } = condition
-            if (field === Schema.TbSrmRouteRuleField.PREFIX) {
-                const hit = !!message.phone && value.some(item => message.phone.startsWith(item))
-                return operator === Schema.TbSrmRouteRuleOperator.PREFIX ? hit : !hit
-            }
-            const actual = field === Schema.TbSrmRouteRuleField.COUNTRY ? String(message.countryKeyId) : message.type
-            const hit = value.includes(actual)
-            return operator === Schema.TbSrmRouteRuleOperator.IN ? hit : !hit
-        })
-    }
-
     /** 规则组中引用的方向主键。 */
     public countryKeyIdsOf(rule: Schema.TbSrmRouteRule): number[] {
         return (rule.conditions ?? [])
@@ -153,25 +134,6 @@ export class RouteUtilsService {
         }
         return [...groups.values()].sort((a, b) => a.countryKeyId - b.countryKeyId || a.type.localeCompare(b.type))
     }
-
-    /** 标记本次参与分流的通道：最高可用优先级内的可用通道。 */
-    public markSelected(channels: RouteDto.RouteChannelResponseDto[]): RouteDto.RoutePreviewChannelDto[] {
-        const priority = Math.min(...channels.filter(item => item.active).map(item => item.priority))
-        return channels.map(item => ({ ...item, selected: item.active && item.priority === priority }))
-    }
-
-    /** 路由摘要。 */
-    public pickRoute(route: Schema.TbSrmRoute): RouteDto.RouteSelectResponseDto {
-        return {
-            keyId: route.keyId,
-            name: route.name,
-            alias: route.alias,
-            type: route.type,
-            priority: route.priority,
-            status: route.status
-        }
-    }
-
     /** 校验路由存在。 */
     public async findRouteRequired(manager: EntityManager, keyId: number): Promise<Schema.TbSrmRoute> {
         const route = await manager.findOneBy(Schema.TbSrmRoute, { keyId })

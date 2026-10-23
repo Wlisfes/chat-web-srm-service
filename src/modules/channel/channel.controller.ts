@@ -92,24 +92,4 @@ export class ChannelController {
         return this.channelService.httpBaseSrmBindChannelPort(principal, input)
     }
 
-    @ApiServiceDecorator(Post('port/update'), {
-        operation: { summary: '编辑通道端口权重和状态' },
-        request: { source: 'body', type: ChannelDto.UpdateChannelPortDto },
-        response: { type: Schema.TbSrmChannelPortDto, description: '更新后的端口绑定' }
-    })
-    public async httpBaseSrmUpdateChannelPort(
-        @CurrentPrincipal() principal: AuthPrincipal,
-        @Body() input: ChannelDto.UpdateChannelPortDto
-    ) {
-        return this.channelService.httpBaseSrmUpdateChannelPort(principal, input)
-    }
-
-    @ApiServiceDecorator(Post('port/column'), {
-        operation: { summary: '分页查询通道端口' },
-        request: { source: 'body', type: ChannelDto.ListChannelPortDto },
-        response: { type: ChannelDto.ChannelPortPageResponseDto, description: '通道端口分页数据' }
-    })
-    public async httpBaseSrmColumnChannelPort(@Body() input: ChannelDto.ListChannelPortDto) {
-        return this.channelService.httpBaseSrmColumnChannelPort(input)
-    }
 }

@@ -13,8 +13,6 @@ function createService(manager, overrides = {}) {
     const utils = new ChannelUtilsService(
         repository,
         overrides.portRepository ?? {},
-        overrides.simbankRepository ?? {},
-        overrides.simbankPortRepository ?? {},
         overrides.skyline ?? {},
         { get: () => 'service-token' }
     )
@@ -234,19 +232,6 @@ test('更新端口绑定：启用中的通道不能删到一个启用端口都�
     })
     await assert.rejects(
         () => createService(manager).httpBaseSrmBindChannelPort(principal, { channelKeyId: 1, list: [{ portKeyId: 12, weight: 1, status: 'disable' }] }),
-        /至少保留一个启用端口/
-    )
-})
-test('启用中的通道不能停用到一个启用端口都不剩', async () => {
-    const manager = {
-        findOneBy: async entity =>
-            entity.name === 'TbSrmChannelPort'
-                ? { keyId: 5, channelKeyId: 1, status: 'enable' }
-                : { keyId: 1, alias: 'TSK1024-MRKT-A001', status: 'enable' },
-        countBy: async () => 0
-    }
-    await assert.rejects(
-        () => createService(manager).httpBaseSrmUpdateChannelPort(principal, { keyId: 5, weight: 1, status: 'disable' }),
         /至少保留一个启用端口/
     )
 })

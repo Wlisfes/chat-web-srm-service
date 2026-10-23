@@ -103,7 +103,7 @@ test('路由别名按工号和类型自增，有绑定应用的路由不能删�
     assert.deepEqual(await service.httpBaseSrmDeleteRoute({ keyId: 1 }), { success: true })
 })
 
-test('短信应用只能绑定同类型路由，解绑不改变路由类型', async () => {
+test('短信应用只能绑定同类型路由', async () => {
     const tables = {
         TbSrmRoute: [
             { keyId: 1, name: '营销', type: 'MRKT', status: 'enable' },
@@ -116,7 +116,6 @@ test('短信应用只能绑定同类型路由，解绑不改变路由类型', as
     assert.deepEqual(await service.httpBaseSrmBindRouteApp(principal, { routeKeyId: 2, apps: [{ appKeyId: 1001, status: 'enable' }] }), { count: 1 })
     assert.equal(tables.TbSrmRouteApp[0].userKeyId, 10241000)
     assert.equal(tables.TbSrmRouteApp[0].status, 'enable')
-    await service.httpBaseSrmUnbindRouteApp({ keyIds: [1] })
     assert.equal(tables.TbSrmRoute[1].type, 'SOTP')
 })
 
@@ -242,93 +241,6 @@ test('分流占比只在同路由、同方向、同类型、同优先级的可�
     const result = await createService(createManager(routeTables())).httpBaseSrmListRouteChannel({ routeKeyId: 3 })
     const ratio = Object.fromEntries(result.map(item => [item.keyId, item.ratio]))
     assert.deepEqual(ratio, { 2: 60, 3: 40, 4: 100, 5: 100 })
-})
-
-test('选路：绑定路由没有该方向通道时，按优先级回落到同类型路由', async () => {
-    const result = await createService(createManager(routeTables())).httpBaseSrmRoutePreview({ appKeyId: 1001, countryKeyId: 1007 })
-    assert.equal(result.matched, true)
-    assert.equal(result.fallback, true)
-    assert.deepEqual(
-        result.steps.map(step => [step.routeOptions.name, step.matched]),
-        [
-            ['专线', false],
-            ['通用A', true]
-        ]
-    )
-    const selected = result.steps[1].channels.filter(item => item.selected).map(item => item.channelOptions.alias)
-    assert.deepEqual(selected, ['HK-SOTP-1', 'HK-SOTP-2'])
-})
-
-test('选路：主通道都不可用时降级到下一优先级', async () => {
-    const tables = routeTables()
-    tables.TbSrmChannel.find(item => item.keyId === 11).status = 'disable'
-    tables.TbSrmRouteChannel.find(item => item.keyId === 3).status = 'disable'
-    const result = await createService(createManager(tables)).httpBaseSrmRoutePreview({ appKeyId: 1001, countryKeyId: 1007 })
-    const step = result.steps.find(item => item.routeOptions.name === '通用A')
-    assert.deepEqual(
-        step.channels.filter(item => item.selected).map(item => item.channelOptions.alias),
-        ['HK-SOTP-3']
-    )
-})
-
-test('选路：定向路由命中时不回落', async () => {
-    const result = await createService(createManager(routeTables())).httpBaseSrmRoutePreview({ appKeyId: 1001, countryKeyId: 1008 })
-    assert.deepEqual([result.matched, result.fallback, result.steps.length], [true, false, 1])
-})
-
-test('规则组：组内且、组间或，路由没有命中规则时跳过', async () => {
-    const tables = routeTables()
-    tables.TbSrmRouteRule = [
-        { keyId: 1, routeKeyId: 1, sort: 0, status: 'enable', conditions: [{ field: 'country', operator: 'in', value: ['1008'] }] },
-        {
-            keyId: 2,
-            routeKeyId: 3,
-            sort: 0,
-            status: 'enable',
-            conditions: [
-                { field: 'country', operator: 'in', value: ['1007'] },
-                { field: 'type', operator: 'in', value: ['SOTP'] },
-                { field: 'prefix', operator: 'not_prefix', value: ['85290'] }
-            ]
-        },
-        {
-            keyId: 3,
-            routeKeyId: 2,
-            sort: 0,
-            status: 'enable',
-            conditions: [{ field: 'prefix', operator: 'prefix', value: ['85290'] }]
-        },
-        { keyId: 4, routeKeyId: 2, sort: 1, status: 'disable', conditions: [{ field: 'country', operator: 'in', value: ['1007'] }] }
-    ]
-    const service = createService(createManager(tables))
-    const normal = await service.httpBaseSrmRoutePreview({ appKeyId: 1001, countryKeyId: 1007, phone: '+85291234567' })
-    assert.deepEqual(
-        normal.steps.map(step => [step.routeOptions.name, step.admitted, step.matched]),
-        [
-            ['专线', false, false],
-            ['通用A', true, true]
-        ]
-    )
-    const blocked = await service.httpBaseSrmRoutePreview({ appKeyId: 1001, countryKeyId: 1007, phone: '85290123456' })
-    assert.deepEqual(
-        blocked.steps.map(step => [step.routeOptions.name, step.admitted, step.matched]),
-        [
-            ['专线', false, false],
-            ['通用A', false, false],
-            ['通用B', true, true]
-        ]
-    )
-    const marketing = await service.httpBaseSrmRoutePreview({ appKeyId: 1001, countryKeyId: 1007, type: 'MRKT', phone: '85291234567' })
-    assert.equal(marketing.matched, false)
-    assert.match(marketing.message, /没有启用的同类型路由/)
-})
-
-test('没有启用规则组的路由不接收短信', async () => {
-    const tables = routeTables()
-    tables.TbSrmRouteRule = []
-    const result = await createService(createManager(tables)).httpBaseSrmRoutePreview({ appKeyId: 1001, countryKeyId: 1007 })
-    assert.equal(result.matched, false)
-    assert.ok(result.steps.every(step => !step.admitted))
 })
 
 test('新增规则组校验字段与操作符、类型取值、号码段和方向', async () => {

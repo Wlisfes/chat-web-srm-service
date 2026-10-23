@@ -1,6 +1,6 @@
 import { ApiProperty, IntersectionType, PartialType, PickType } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsInt, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator'
+import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsInt, Min, ValidateNested } from 'class-validator'
 import { EnumsResponseDto, PageResponseDataDto } from '@wlisfes/chat-web-base-schema/decorator'
 import { PageDto } from '@wlisfes/chat-web-base-schema/utils'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
@@ -83,37 +83,6 @@ export class BindChannelPortDto extends PickType(Schema.TbSrmChannelPortDto, ['c
     @ValidateNested({ each: true })
     @Type(() => BindChannelPortItemDto)
     list: BindChannelPortItemDto[]
-}
-
-/** 编辑端口绑定入参：POST /channel/port/update。 */
-export class UpdateChannelPortDto extends PickType(Schema.TbSrmChannelPortDto, ['keyId', 'weight', 'status'] as const) {}
-
-/** 通道端口分页入参：POST /channel/port/column；name 匹配 SIM、ICCID、设备名称或别名。 */
-export class ListChannelPortDto extends IntersectionType(
-    PageDto,
-    PickType(Schema.TbSrmChannelPortDto, ['channelKeyId'] as const),
-    PartialType(PickType(Schema.TbSrmChannelPortDto, ['status'] as const))
-) {
-    @ApiProperty({ description: '关键词：SIM、ICCID、设备名称或别名', required: false, example: '8613' })
-    @IsOptional()
-    @IsString({ message: '关键词必须是字符串' })
-    @MaxLength(64, { message: '关键词长度不能超过64位' })
-    name?: string
-}
-
-/** 通道端口列表项：附带端口和设备当前状态，便于判断端口能否实际发送。 */
-export class ChannelPortColumnResponseDto extends Schema.TbSrmChannelPortDto {
-    @ApiProperty({ description: '端口信息', required: false, type: Schema.TbSrmSimbankPortDto })
-    portOptions?: Schema.TbSrmSimbankPortDto
-
-    @ApiProperty({ description: '设备信息', required: false, type: Schema.TbSrmSimbankDto })
-    simbankOptions?: Schema.TbSrmSimbankDto
-}
-
-/** 通道端口分页响应：POST /channel/port/column。 */
-export class ChannelPortPageResponseDto extends PageResponseDataDto {
-    @ApiProperty({ description: '通道端口列表', type: [ChannelPortColumnResponseDto] })
-    list: ChannelPortColumnResponseDto[]
 }
 
 /** 通道详情响应：GET /channel/resolve；附带该通道已绑定的端口。 */
