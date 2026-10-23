@@ -1,6 +1,6 @@
 import { ApiProperty, IntersectionType, PartialType, PickType } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator'
+import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsInt, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator'
 import { EnumsResponseDto, PageResponseDataDto } from '@wlisfes/chat-web-base-schema/decorator'
 import { PageDto } from '@wlisfes/chat-web-base-schema/utils'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
@@ -71,16 +71,18 @@ export class ChannelSelectResponseDto extends PickType(Schema.TbSrmChannelDto, [
     'status'
 ] as const) {}
 
-/** 更新通道端口绑定入参：POST /channel/port/bind；以本次提交的端口集合为准，端口必须已激活且激活方向与通道方向一致，已绑定到其他通道的端口会被拒绝。 */
+/** 绑定端口明细：端口、权重和绑定状态。 */
+export class BindChannelPortItemDto extends PickType(Schema.TbSrmChannelPortDto, ['portKeyId', 'weight', 'status'] as const) {}
+
+/** 更新通道端口绑定入参：POST /channel/port/bind；以本次提交的端口列表为准，包含端口、权重和绑定状态。 */
 export class BindChannelPortDto extends PickType(Schema.TbSrmChannelPortDto, ['channelKeyId'] as const) {
-    @ApiProperty({ description: '端口ID集合', type: Number, isArray: true, example: [1002401, 1002402] })
-    @IsArray({ message: '端口ID集合必须是数组' })
+    @ApiProperty({ description: '绑定端口列表', type: [BindChannelPortItemDto] })
+    @IsArray({ message: '绑定端口列表必须是数组' })
     @ArrayNotEmpty({ message: '请选择要绑定的端口' })
     @ArrayMaxSize(500, { message: '单次最多绑定500个端口' })
-    @Type(() => Number)
-    @IsInt({ each: true, message: '端口ID必须是整数' })
-    @Min(1, { each: true, message: '端口ID必须大于0' })
-    portKeyIds: number[]
+    @ValidateNested({ each: true })
+    @Type(() => BindChannelPortItemDto)
+    list: BindChannelPortItemDto[]
 }
 
 /** 编辑端口绑定入参：POST /channel/port/update。 */

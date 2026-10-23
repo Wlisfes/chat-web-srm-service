@@ -165,7 +165,9 @@ export class ChannelService {
     public async httpBaseSrmBindChannelPort(principal: AuthPrincipal, input: ChannelDto.BindChannelPortDto): Promise<{ count: number }> {
         return this.repository.manager.transaction(async manager => {
             const channel = await this.channelUtilsService.findChannelRequired(manager, input.channelKeyId)
-            const portKeyIds = [...new Set(input.portKeyIds)]
+            const items = input.list
+            const portKeyIds = items.map(item => item.portKeyId)
+            if (new Set(portKeyIds).size !== portKeyIds.length) throw new BadRequestException('不能重复选择相同端口')
             const ports = await manager.find(Schema.TbSrmSimbankPort, { where: { keyId: In(portKeyIds) } })
             if (ports.length !== portKeyIds.length) throw new NotFoundException('部分端口不存在')
             const mismatched = ports.filter(
@@ -180,37 +182,47 @@ export class ChannelService {
                 const numbers = ports.filter(port => conflicts.some(item => item.portKeyId === port.keyId)).map(port => port.port)
                 throw new ConflictException(`端口已绑定其他通道：${numbers.join('、')}`)
             }
+            if (
+                channel.status === Schema.TbSrmChannelStatus.ENABLE &&
+                !items.some(item => item.status === Schema.TbSrmChannelPortStatus.ENABLE)
+            ) {
+                throw new ConflictException(`通道【${channel.alias}】启用中，至少保留一个启用端口，或先停用通道`)
+            }
             const current = await manager.find(Schema.TbSrmChannelPort, { where: { channelKeyId: channel.keyId } })
             const selected = new Set(portKeyIds)
             const removed = current.filter(item => !selected.has(item.portKeyId))
-            if (removed.length > 0) {
-                if (channel.status === Schema.TbSrmChannelStatus.ENABLE) {
-                    const remaining = current.filter(
-                        item => selected.has(item.portKeyId) && item.status === Schema.TbSrmChannelPortStatus.ENABLE
-                    )
-                    if (remaining.length === 0) {
-                        throw new ConflictException(`通道【${channel.alias}】启用中，至少保留一个启用端口，或先停用通道`)
+            if (removed.length > 0) await manager.delete(Schema.TbSrmChannelPort, { keyId: In(removed.map(item => item.keyId)) })
+            const existed = new Map(current.filter(item => selected.has(item.portKeyId)).map(item => [item.portKeyId, item]))
+            for (const item of items) {
+                const binding = existed.get(item.portKeyId)
+                if (!binding || (binding.weight === item.weight && binding.status === item.status)) continue
+                await manager.update(
+                    Schema.TbSrmChannelPort,
+                    { keyId: binding.keyId },
+                    {
+                        weight: item.weight,
+                        status: item.status,
+                        modifyBy: principal.uid
                     }
-                }
-                await manager.delete(Schema.TbSrmChannelPort, { keyId: In(removed.map(item => item.keyId)) })
+                )
             }
-            const existed = new Set(bound.filter(item => item.channelKeyId === channel.keyId).map(item => item.portKeyId))
             const added = ports.filter(port => !existed.has(port.keyId))
             if (added.length > 0) {
+                const submitted = new Map(items.map(item => [item.portKeyId, item]))
                 await manager.insert(
                     Schema.TbSrmChannelPort,
                     added.map(port => ({
                         channelKeyId: channel.keyId,
                         portKeyId: port.keyId,
                         simbankKeyId: port.simbankKeyId,
-                        weight: 1,
-                        status: Schema.TbSrmChannelPortStatus.ENABLE,
+                        weight: submitted.get(port.keyId).weight,
+                        status: submitted.get(port.keyId).status,
                         createBy: principal.uid,
                         modifyBy: principal.uid
                     }))
                 )
             }
-            return { count: portKeyIds.length }
+            return { count: items.length }
         })
     }
 

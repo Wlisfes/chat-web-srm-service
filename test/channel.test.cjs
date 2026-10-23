@@ -123,7 +123,7 @@ test('只能绑定已激活且方向与通道一致的端口', async () => {
         ]
     }
     await assert.rejects(
-        () => createService(manager).httpBaseSrmBindChannelPort(principal, { channelKeyId: 1, portKeyIds: [11, 12, 13] }),
+        () => createService(manager).httpBaseSrmBindChannelPort(principal, { channelKeyId: 1, list: [{ portKeyId: 11, weight: 1, status: 'enable' }, { portKeyId: 12, weight: 1, status: 'enable' }, { portKeyId: 13, weight: 1, status: 'enable' }] }),
         /激活方向与通道不一致：2、3/
     )
 })
@@ -141,7 +141,7 @@ test('端口已绑定其他通道时整批拒绝', async () => {
                 : [{ portKeyId: 12, channelKeyId: 2 }]
     }
     await assert.rejects(
-        () => createService(manager).httpBaseSrmBindChannelPort(principal, { channelKeyId: 1, portKeyIds: [11, 12] }),
+        () => createService(manager).httpBaseSrmBindChannelPort(principal, { channelKeyId: 1, list: [{ portKeyId: 11, weight: 1, status: 'enable' }, { portKeyId: 12, weight: 1, status: 'enable' }] }),
         /端口已绑定其他通道：2/
     )
 })
@@ -167,6 +167,7 @@ function bindManager({
             return current
         },
         insert: async (_entity, rows) => inserted && inserted.push(...rows),
+        update: async () => undefined,
         delete: async (entity, where) => deleted && deleted.push([entity.name, where.where ?? where])
     }
 }
@@ -190,7 +191,7 @@ test('更新端口绑定：已选端口保持不变，不重复插入', async ()
         inserted,
         deleted
     })
-    const result = await createService(manager).httpBaseSrmBindChannelPort(principal, { channelKeyId: 1, portKeyIds: [11, 12] })
+    const result = await createService(manager).httpBaseSrmBindChannelPort(principal, { channelKeyId: 1, list: [{ portKeyId: 11, weight: 1, status: 'enable' }, { portKeyId: 12, weight: 1, status: 'enable' }] })
     assert.equal(result.count, 2)
     assert.deepEqual(inserted, [])
     assert.deepEqual(deleted, [])
@@ -212,7 +213,7 @@ test('更新端口绑定：新选端口写入设备快照，未选端口被删�
         inserted,
         deleted
     })
-    const result = await createService(manager).httpBaseSrmBindChannelPort(principal, { channelKeyId: 1, portKeyIds: [12] })
+    const result = await createService(manager).httpBaseSrmBindChannelPort(principal, { channelKeyId: 1, list: [{ portKeyId: 12, weight: 1, status: 'enable' }] })
     assert.equal(result.count, 1)
     assert.deepEqual(inserted, [
         { channelKeyId: 1, portKeyId: 12, simbankKeyId: 101, weight: 1, status: 'enable', createBy: '30001', modifyBy: '30001' }
@@ -232,7 +233,7 @@ test('更新端口绑定：启用中的通道不能删到一个启用端口都�
         bound: []
     })
     await assert.rejects(
-        () => createService(manager).httpBaseSrmBindChannelPort(principal, { channelKeyId: 1, portKeyIds: [12] }),
+        () => createService(manager).httpBaseSrmBindChannelPort(principal, { channelKeyId: 1, list: [{ portKeyId: 12, weight: 1, status: 'disable' }] }),
         /至少保留一个启用端口/
     )
 })
