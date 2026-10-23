@@ -26,6 +26,7 @@ export class RouteService {
             statusOptions: Schema.TbSrmRouteStatusDefinition.options,
             routeTypeOptions: Schema.TbSrmRouteTypeDefinition.options,
             channelStatusOptions: Schema.TbSrmRouteChannelStatusDefinition.options,
+            appStatusOptions: Schema.TbSrmRouteAppStatusDefinition.options,
             ruleStatusOptions: Schema.TbSrmRouteRuleStatusDefinition.options,
             ruleFieldOptions: Schema.TbSrmRouteRuleFieldDefinition.options,
             ruleOperatorOptions: Schema.TbSrmRouteRuleOperatorDefinition.options,
@@ -86,12 +87,16 @@ export class RouteService {
         })
     }
 
-    /** 路由详情：附带绑定的通道列表（含通道信息、可用状态和同优先级分流占比）。 */
+    /** 路由详情：附带绑定的通道和短信应用。 */
     public async httpBaseSrmRouteResolver(input: RouteDto.RouteKeyDto): Promise<RouteDto.RouteResolverResponseDto> {
         const route = await this.routeUtilsService.findRouteRequired(this.repository.manager, input.keyId)
-        const channels = await this.routeUtilsService.findRouteChannels([route.keyId])
-
-        return { ...route, channels }
+        const [channels, apps] = await Promise.all([
+            this.routeUtilsService.findRouteChannels([route.keyId]),
+            this.repository.manager
+                .find(Schema.TbSrmRouteApp, { where: { routeKeyId: route.keyId }, order: { keyId: 'ASC' } })
+                .then(list => this.attachRouteAppOptions(list.map(item => ({ ...item }))))
+        ])
+        return { ...route, channels, apps }
     }
 
     /** 路由分页：按短信类型和优先级排序，附带规则摘要、通道数、覆盖的方向和类型、绑定短信应用数。 */
@@ -241,7 +246,8 @@ export class RouteService {
             const existed = new Map(current.filter(item => selected.has(item.channelKeyId)).map(item => [item.channelKeyId, item]))
             for (const item of items) {
                 const binding = existed.get(item.channelKeyId)
-                if (!binding || (binding.priority === item.priority && binding.weight === item.weight && binding.status === item.status)) continue
+                if (!binding || (binding.priority === item.priority && binding.weight === item.weight && binding.status === item.status))
+                    continue
                 await manager.update(
                     Schema.TbSrmRouteChannel,
                     { keyId: binding.keyId },
@@ -316,24 +322,39 @@ export class RouteService {
 
     /* ------------------------------ 短信应用绑定 ------------------------------ */
 
-    /** 短信应用绑定路由：只能绑定同类型路由；已绑定其他路由的应用改绑到当前路由。 */
+    /**
+     * 短信应用绑定路由：以本次提交的应用列表为准。
+     * 保留已选并更新状态，移除本路由未选应用；已绑定其他路由的应用改绑到当前路由。
+     * 停用的绑定在选路时按未绑定处理。
+     */
     public async httpBaseSrmBindRouteApp(
         principal: AuthPrincipal,
         input: RouteDto.BindRouteAppDto
     ): Promise<RouteDto.RouteCountResponseDto> {
-        const appKeyIds = [...new Set(input.appKeyIds)]
+        const items = input.apps
+        const appKeyIds = items.map(item => item.appKeyId)
+        if (new Set(appKeyIds).size !== appKeyIds.length) throw new BadRequestException('不能重复选择相同短信应用')
         const apps = await this.smsFeignClient.httpBaseSmsColumnAppResolver(this.routeUtilsService.authorization(), { keyIds: appKeyIds })
         if (apps.length !== appKeyIds.length) throw new NotFoundException('部分短信应用不存在')
         return this.repository.manager.transaction(async manager => {
             const route = await this.routeUtilsService.findRouteRequired(manager, input.routeKeyId)
             if (apps.some(app => String(app.type) !== route.type)) throw new BadRequestException('短信应用类型与路由类型不一致')
+            const current = await manager.find(Schema.TbSrmRouteApp, { where: { routeKeyId: route.keyId } })
+            const selected = new Set(appKeyIds)
+            const removed = current.filter(item => !selected.has(item.appKeyId))
+            if (removed.length > 0) await manager.delete(Schema.TbSrmRouteApp, { keyId: In(removed.map(item => item.keyId)) })
+            const submitted = new Map(items.map(item => [item.appKeyId, item]))
             const existed = await manager.find(Schema.TbSrmRouteApp, { where: { appKeyId: In(appKeyIds) } })
             for (const app of apps) {
-                const binding = existed.find(item => item.appKeyId === app.keyId)
+                const item = submitted.get(app.keyId)
+                const binding = existed.find(row => row.appKeyId === app.keyId)
                 if (binding) {
+                    if (binding.routeKeyId === route.keyId && binding.userKeyId === app.userKeyId && binding.status === item.status)
+                        continue
                     manager.merge(Schema.TbSrmRouteApp, binding, {
                         routeKeyId: route.keyId,
                         userKeyId: app.userKeyId,
+                        status: item.status,
                         modifyBy: principal.uid
                     })
                     await manager.save(binding)
@@ -342,6 +363,7 @@ export class RouteService {
                         appKeyId: app.keyId,
                         userKeyId: app.userKeyId,
                         routeKeyId: route.keyId,
+                        status: item.status,
                         createBy: principal.uid,
                         modifyBy: principal.uid
                     })
@@ -349,6 +371,31 @@ export class RouteService {
             }
             return { count: apps.length }
         })
+    }
+
+    /** 给短信应用绑定补上应用、客户、路由和操作人信息。 */
+    private async attachRouteAppOptions(rows: RouteDto.RouteAppColumnResponseDto[]): Promise<RouteDto.RouteAppColumnResponseDto[]> {
+        if (rows.length > 0) {
+            const authorization = this.routeUtilsService.authorization()
+            const [apps, users, routes] = await Promise.all([
+                this.smsFeignClient.httpBaseSmsColumnAppResolver(authorization, { keyIds: rows.map(item => item.appKeyId) }),
+                this.crmFeignClient.httpBaseCrmColumnUserResolver(authorization, {
+                    keyIds: [...new Set(rows.map(item => item.userKeyId))]
+                }),
+                this.repository.find({
+                    select: { keyId: true, name: true, alias: true, type: true, priority: true, status: true },
+                    where: { keyId: In([...new Set(rows.map(item => item.routeKeyId))]) }
+                })
+            ])
+            for (const row of rows) {
+                const user = users.find(item => item.keyId === row.userKeyId)
+                row.appKeyIdOptions = apps.find(item => item.keyId === row.appKeyId)
+                row.userKeyIdOptions = { keyId: row.userKeyId, name: user?.name, alias: user?.alias }
+                row.routeKeyIdOptions = routes.find(item => item.keyId === row.routeKeyId)
+            }
+        }
+        await feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, rows, ['createBy', 'modifyBy'])
+        return rows
     }
 
     /** 解绑短信应用：解绑后应用按优先级使用同类型路由，路由类型不变。 */
@@ -368,27 +415,7 @@ export class RouteService {
             qb.orderBy('t.modifyTime', 'DESC').addOrderBy('t.keyId', 'DESC')
             qb.skip((page - 1) * size).take(size)
             const [list, total] = await qb.getManyAndCount()
-            const rows: RouteDto.RouteAppColumnResponseDto[] = list.map(item => ({ ...item }))
-            if (rows.length > 0) {
-                const authorization = this.routeUtilsService.authorization()
-                const [apps, users, routes] = await Promise.all([
-                    this.smsFeignClient.httpBaseSmsColumnAppResolver(authorization, { keyIds: rows.map(item => item.appKeyId) }),
-                    this.crmFeignClient.httpBaseCrmColumnUserResolver(authorization, {
-                        keyIds: [...new Set(rows.map(item => item.userKeyId))]
-                    }),
-                    this.repository.find({
-                        select: { keyId: true, name: true, alias: true, type: true, priority: true, status: true },
-                        where: { keyId: In([...new Set(rows.map(item => item.routeKeyId))]) }
-                    })
-                ])
-                for (const row of rows) {
-                    const user = users.find(item => item.keyId === row.userKeyId)
-                    row.appKeyIdOptions = apps.find(item => item.keyId === row.appKeyId)
-                    row.userKeyIdOptions = { keyId: row.userKeyId, name: user?.name, alias: user?.alias }
-                    row.routeKeyIdOptions = routes.find(item => item.keyId === row.routeKeyId)
-                }
-            }
-            await feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, rows, ['createBy', 'modifyBy'])
+            const rows = await this.attachRouteAppOptions(list.map(item => ({ ...item })))
             return fetchResolver({ page, size, total, list: rows })
         })
     }
@@ -407,7 +434,8 @@ export class RouteService {
         if (!app) throw new NotFoundException('短信应用不存在')
         const type = input.type ?? app.type
         const binding = await this.repository.manager.findOneBy(Schema.TbSrmRouteApp, { appKeyId: app.keyId })
-        const bound = binding ? await this.repository.findOneBy({ keyId: binding.routeKeyId }) : null
+        const activeBinding = binding && binding.status !== Schema.TbSrmRouteAppStatus.DISABLE ? binding : null
+        const bound = activeBinding ? await this.repository.findOneBy({ keyId: activeBinding.routeKeyId }) : null
         const routeType = type as unknown as Schema.TbSrmRouteType
         const sameType = await this.repository.find({
             where: { type: routeType, status: Schema.TbSrmRouteStatus.ENABLE },

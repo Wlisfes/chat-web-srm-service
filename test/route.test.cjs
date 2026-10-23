@@ -112,11 +112,38 @@ test('短信应用只能绑定同类型路由，解绑不改变路由类型', as
         TbSrmRouteApp: []
     }
     const service = createService(createManager(tables))
-    await assert.rejects(() => service.httpBaseSrmBindRouteApp(principal, { routeKeyId: 1, appKeyIds: [1001] }), /类型不一致/)
-    assert.deepEqual(await service.httpBaseSrmBindRouteApp(principal, { routeKeyId: 2, appKeyIds: [1001] }), { count: 1 })
+    await assert.rejects(() => service.httpBaseSrmBindRouteApp(principal, { routeKeyId: 1, apps: [{ appKeyId: 1001, status: 'enable' }] }), /类型不一致/)
+    assert.deepEqual(await service.httpBaseSrmBindRouteApp(principal, { routeKeyId: 2, apps: [{ appKeyId: 1001, status: 'enable' }] }), { count: 1 })
     assert.equal(tables.TbSrmRouteApp[0].userKeyId, 10241000)
+    assert.equal(tables.TbSrmRouteApp[0].status, 'enable')
     await service.httpBaseSrmUnbindRouteApp({ keyIds: [1] })
     assert.equal(tables.TbSrmRoute[1].type, 'SOTP')
+})
+
+test('更新短信应用绑定：未提交的本路由应用会被移除', async () => {
+    const tables = {
+        TbSrmRoute: [{ keyId: 2, name: '验证码', type: 'SOTP', status: 'enable' }],
+        TbSrmRouteApp: [
+            { keyId: 1, appKeyId: 1001, userKeyId: 10241000, routeKeyId: 2, status: 'enable' },
+            { keyId: 2, appKeyId: 1002, userKeyId: 10241000, routeKeyId: 2, status: 'enable' }
+        ]
+    }
+    const deleted = []
+    const manager = createManager(tables, {
+        delete: async (entity, where) => {
+            deleted.push([entity.name, where.keyId?._value])
+            return { affected: 1 }
+        }
+    })
+    const service = createService(manager)
+    apps[1002] = { keyId: 1002, userKeyId: 10241000, type: 'SOTP', appName: '通知' }
+    assert.deepEqual(
+        await service.httpBaseSrmBindRouteApp(principal, { routeKeyId: 2, apps: [{ appKeyId: 1001, status: 'disable' }] }),
+        { count: 1 }
+    )
+    assert.deepEqual(deleted, [['TbSrmRouteApp', [2]]])
+    assert.equal(tables.TbSrmRouteApp[0].status, 'disable')
+    delete apps[1002]
 })
 
 test('更新路由通道绑定：保留已选并更新配置，移除未选，新增新选通道', async () => {
@@ -322,7 +349,7 @@ test('新增规则组校验字段与操作符、类型取值、号码段和方�
         { field: 'prefix', operator: 'prefix', value: ['85291'] }
     ])
 })
-test('路由详情返回路由本身和绑定的通道列表', async () => {
+test('路由详情返回路由本身和绑定的通道、短信应用', async () => {
     const route = { keyId: 1, name: '通用营销', alias: 'LSK1233-MRKT-A001', type: 'MRKT', priority: 1, status: 'enable' }
     const service = createService(createManager({ TbSrmRoute: [route] }))
     const channels = [{ keyId: 9, routeKeyId: 1, channelKeyId: 11, priority: 1, weight: 100, status: 'enable', active: true, ratio: 100 }]
@@ -334,4 +361,5 @@ test('路由详情返回路由本身和绑定的通道列表', async () => {
     const detail = await service.httpBaseSrmRouteResolver({ keyId: 1 })
     assert.equal(detail.alias, 'LSK1233-MRKT-A001')
     assert.deepEqual(detail.channels, channels)
+    assert.deepEqual(detail.apps, [])
 })

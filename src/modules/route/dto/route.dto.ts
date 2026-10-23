@@ -11,6 +11,7 @@ export class RouteEnumsResponseDto extends EnumsResponseDto({
     statusOptions: { description: '路由状态选项', example: Schema.TbSrmRouteStatusDefinition.options },
     routeTypeOptions: { description: '路由类型选项', example: Schema.TbSrmRouteTypeDefinition.options },
     channelStatusOptions: { description: '路由通道状态选项', example: Schema.TbSrmRouteChannelStatusDefinition.options },
+    appStatusOptions: { description: '短信应用绑定状态选项', example: Schema.TbSrmRouteAppStatusDefinition.options },
     ruleStatusOptions: { description: '规则组状态选项', example: Schema.TbSrmRouteRuleStatusDefinition.options },
     ruleFieldOptions: { description: '条件字段选项', example: Schema.TbSrmRouteRuleFieldDefinition.options },
     ruleOperatorOptions: { description: '条件操作符选项', example: Schema.TbSrmRouteRuleOperatorDefinition.options },
@@ -182,24 +183,29 @@ export class RouteChannelResponseDto extends Schema.TbSrmRouteChannelDto {
     ratio: number
 }
 
-/** 路由详情响应：GET /route/resolve；附带路由绑定的通道列表。 */
+/** 路由详情响应：GET /route/resolve；附带路由绑定的通道和短信应用。 */
 export class RouteResolverResponseDto extends Schema.TbSrmRouteDto {
     @ApiProperty({ description: '绑定的通道列表（含通道信息、可用状态和分流占比）', type: [RouteChannelResponseDto] })
     channels: RouteChannelResponseDto[]
+
+    @ApiProperty({ description: '绑定的短信应用列表（含应用和客户信息）', type: () => [RouteAppColumnResponseDto] })
+    apps: RouteAppColumnResponseDto[]
 }
 
 /* ------------------------------ 短信应用绑定 ------------------------------ */
 
-/** 短信应用绑定路由入参：POST /route/app/bind；只能绑定同类型路由，已绑定其他路由的应用会改绑到当前路由。 */
+/** 绑定短信应用明细：短信应用和绑定状态。 */
+export class BindRouteAppItemDto extends PickType(Schema.TbSrmRouteAppDto, ['appKeyId', 'status'] as const) {}
+
+/** 短信应用绑定路由入参：POST /route/app/bind；以本次提交的应用列表为准更新绑定状态。只能绑定同类型路由，已绑定其他路由的应用会改绑到当前路由。 */
 export class BindRouteAppDto extends PickType(Schema.TbSrmRouteAppDto, ['routeKeyId'] as const) {
-    @ApiProperty({ description: '短信应用主键集合', type: Number, isArray: true, example: [1001, 1002] })
-    @IsArray({ message: '短信应用集合必须是数组' })
+    @ApiProperty({ description: '绑定短信应用列表', type: [BindRouteAppItemDto] })
+    @IsArray({ message: '绑定短信应用列表必须是数组' })
     @ArrayNotEmpty({ message: '请选择短信应用' })
     @ArrayMaxSize(100, { message: '单次最多绑定100个短信应用' })
-    @Type(() => Number)
-    @IsInt({ each: true, message: '短信应用主键必须是整数' })
-    @Min(1, { each: true, message: '短信应用主键必须大于0' })
-    appKeyIds: number[]
+    @ValidateNested({ each: true })
+    @Type(() => BindRouteAppItemDto)
+    apps: BindRouteAppItemDto[]
 }
 
 /** 解绑短信应用入参：POST /route/app/unbind；解绑后应用按优先级使用同类型路由。 */
