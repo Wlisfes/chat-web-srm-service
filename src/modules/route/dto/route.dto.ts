@@ -1,6 +1,6 @@
 import { ApiProperty, IntersectionType, PartialType, PickType } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator'
+import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator'
 import { EnumsResponseDto, PageResponseDataDto } from '@wlisfes/chat-web-base-schema/decorator'
 import { PageDto } from '@wlisfes/chat-web-base-schema/utils'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
@@ -138,19 +138,18 @@ export class RouteRuleResponseDto extends Schema.TbSrmRouteRuleDto {
 
 /* ------------------------------ 路由通道 ------------------------------ */
 
-/** 更新路由通道绑定入参：POST /route/channel/bind；以本次提交的集合为准，路由可以挂不同方向和类型的通道。 */
-export class BindRouteChannelDto extends IntersectionType(
-    PickType(Schema.TbSrmRouteChannelDto, ['routeKeyId'] as const),
-    PartialType(PickType(Schema.TbSrmRouteChannelDto, ['priority', 'weight', 'status'] as const))
-) {
-    @ApiProperty({ description: '通道ID集合：以本次提交的集合为准更新路由通道绑定', type: Number, isArray: true, example: [1001] })
-    @IsArray({ message: '通道集合必须是数组' })
-    @ArrayNotEmpty({ message: '请选择通道' })
+/** 绑定通道明细：通道、优先级、权重和绑定状态。 */
+export class BindRouteChannelItemDto extends PickType(Schema.TbSrmRouteChannelDto, ['channelKeyId', 'priority', 'weight', 'status'] as const) {}
+
+/** 更新路由通道绑定入参：POST /route/channel/bind；以本次提交的通道列表为准，包含通道、优先级、权重和绑定状态。路由可以挂不同方向和类型的通道。 */
+export class BindRouteChannelDto extends PickType(Schema.TbSrmRouteChannelDto, ['routeKeyId'] as const) {
+    @ApiProperty({ description: '绑定通道列表', type: [BindRouteChannelItemDto] })
+    @IsArray({ message: '绑定通道列表必须是数组' })
+    @ArrayNotEmpty({ message: '请选择要绑定的通道' })
     @ArrayMaxSize(100, { message: '单次最多加入100个通道' })
-    @Type(() => Number)
-    @IsInt({ each: true, message: '通道ID必须是整数' })
-    @Min(1, { each: true, message: '通道ID必须大于0' })
-    channelKeyIds: number[]
+    @ValidateNested({ each: true })
+    @Type(() => BindRouteChannelItemDto)
+    channels: BindRouteChannelItemDto[]
 }
 
 /** 编辑路由通道入参：POST /route/channel/update。 */

@@ -221,7 +221,7 @@ export class RouteService {
 
     /**
      * 更新路由通道绑定：以本次提交的通道集合为准，保留已选通道、移除未选通道、新增新选通道。
-     * 通道可以是不同方向和类型；已选通道保留原有优先级、权重和状态。
+     * 已选通道按本次提交更新优先级、权重和状态。通道可以是不同方向和类型。
      */
     public async httpBaseSrmBindRouteChannel(
         principal: AuthPrincipal,
@@ -229,32 +229,47 @@ export class RouteService {
     ): Promise<RouteDto.RouteCountResponseDto> {
         return this.repository.manager.transaction(async manager => {
             const route = await this.routeUtilsService.findRouteRequired(manager, input.routeKeyId)
-            const channelKeyIds = [...new Set(input.channelKeyIds)]
+            const items = input.channels
+            const channelKeyIds = items.map(item => item.channelKeyId)
+            if (new Set(channelKeyIds).size !== channelKeyIds.length) throw new BadRequestException('不能重复选择相同通道')
             const channels = await manager.find(Schema.TbSrmChannel, { where: { keyId: In(channelKeyIds) } })
             if (channels.length !== channelKeyIds.length) throw new NotFoundException('部分通道不存在')
-            const existing = await manager.find(Schema.TbSrmRouteChannel, { where: { routeKeyId: route.keyId } })
+            const current = await manager.find(Schema.TbSrmRouteChannel, { where: { routeKeyId: route.keyId } })
             const selected = new Set(channelKeyIds)
-            const removed = existing.filter(item => !selected.has(item.channelKeyId))
-            if (removed.length > 0) {
-                await manager.delete(Schema.TbSrmRouteChannel, { keyId: In(removed.map(item => item.keyId)) })
+            const removed = current.filter(item => !selected.has(item.channelKeyId))
+            if (removed.length > 0) await manager.delete(Schema.TbSrmRouteChannel, { keyId: In(removed.map(item => item.keyId)) })
+            const existed = new Map(current.filter(item => selected.has(item.channelKeyId)).map(item => [item.channelKeyId, item]))
+            for (const item of items) {
+                const binding = existed.get(item.channelKeyId)
+                if (!binding || (binding.priority === item.priority && binding.weight === item.weight && binding.status === item.status)) continue
+                await manager.update(
+                    Schema.TbSrmRouteChannel,
+                    { keyId: binding.keyId },
+                    {
+                        priority: item.priority,
+                        weight: item.weight,
+                        status: item.status,
+                        modifyBy: principal.uid
+                    }
+                )
             }
-            const existed = new Set(existing.map(item => item.channelKeyId))
             const added = channels.filter(channel => !existed.has(channel.keyId))
             if (added.length > 0) {
+                const submitted = new Map(items.map(item => [item.channelKeyId, item]))
                 await manager.insert(
                     Schema.TbSrmRouteChannel,
                     added.map(channel => ({
                         routeKeyId: route.keyId,
                         channelKeyId: channel.keyId,
-                        priority: input.priority ?? 1,
-                        weight: input.weight ?? 100,
-                        status: input.status ?? Schema.TbSrmRouteChannelStatus.ENABLE,
+                        priority: submitted.get(channel.keyId).priority,
+                        weight: submitted.get(channel.keyId).weight,
+                        status: submitted.get(channel.keyId).status,
                         createBy: principal.uid,
                         modifyBy: principal.uid
                     }))
                 )
             }
-            return { count: channelKeyIds.length }
+            return { count: items.length }
         })
     }
 

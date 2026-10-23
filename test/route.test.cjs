@@ -119,7 +119,7 @@ test('短信应用只能绑定同类型路由，解绑不改变路由类型', as
     assert.equal(tables.TbSrmRoute[1].type, 'SOTP')
 })
 
-test('更新路由通道绑定：保留已选、移除未选、只新增新选通道', async () => {
+test('更新路由通道绑定：保留已选并更新配置，移除未选，新增新选通道', async () => {
     const tables = {
         TbSrmRoute: [{ keyId: 1, name: '通用', type: 'SOTP', status: 'enable' }],
         TbSrmChannel: [
@@ -129,11 +129,20 @@ test('更新路由通道绑定：保留已选、移除未选、只新增新选�
         TbSrmRouteChannel: [{ keyId: 1, routeKeyId: 1, channelKeyId: 12, priority: 2, weight: 50, status: 'disable' }]
     }
     const service = createService(createManager(tables))
-    assert.deepEqual(await service.httpBaseSrmBindRouteChannel(principal, { routeKeyId: 1, channelKeyIds: [11, 12] }), { count: 2 })
+    assert.deepEqual(
+        await service.httpBaseSrmBindRouteChannel(principal, {
+            routeKeyId: 1,
+            channels: [
+                { channelKeyId: 11, priority: 1, weight: 100, status: 'enable' },
+                { channelKeyId: 12, priority: 3, weight: 80, status: 'enable' }
+            ]
+        }),
+        { count: 2 }
+    )
     assert.deepEqual(
         tables.TbSrmRouteChannel.map(item => [item.channelKeyId, item.priority, item.weight, item.status]),
         [
-            [12, 2, 50, 'disable'],
+            [12, 3, 80, 'enable'],
             [11, 1, 100, 'enable']
         ]
     )
@@ -161,7 +170,7 @@ test('更新路由通道绑定：未选通道被移除', async () => {
         }
     })
     const service = createService(manager)
-    assert.deepEqual(await service.httpBaseSrmBindRouteChannel(principal, { routeKeyId: 1, channelKeyIds: [12] }), { count: 1 })
+    assert.deepEqual(await service.httpBaseSrmBindRouteChannel(principal, { routeKeyId: 1, channels: [{ channelKeyId: 12, priority: 1, weight: 100, status: 'enable' }] }), { count: 1 })
     assert.deepEqual(deleted, [['TbSrmRouteChannel', [1]]])
     assert.deepEqual(
         tables.TbSrmRouteChannel.map(item => item.channelKeyId),
