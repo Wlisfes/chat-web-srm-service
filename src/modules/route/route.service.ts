@@ -138,49 +138,6 @@ export class RouteService {
 
     /* ------------------------------ 规则组 ------------------------------ */
 
-    /** 新增规则组：校验条件字段、操作符和取值。 */
-    public async httpBaseSrmCreateRouteRule(principal: AuthPrincipal, input: RouteDto.CreateRouteRuleDto): Promise<Schema.TbSrmRouteRule> {
-        const conditions = await this.routeUtilsService.normalizeConditions(input.conditions)
-        return this.repository.manager.transaction(async manager => {
-            await this.routeUtilsService.findRouteRequired(manager, input.routeKeyId)
-            return manager.save(
-                manager.create(Schema.TbSrmRouteRule, {
-                    routeKeyId: input.routeKeyId,
-                    sort: input.sort ?? 0,
-                    conditions,
-                    status: input.status ?? Schema.TbSrmRouteRuleStatus.ENABLE,
-                    remark: input.remark?.trim() || null,
-                    createBy: principal.uid,
-                    modifyBy: principal.uid
-                })
-            )
-        })
-    }
-
-    /** 编辑规则组：可修改排序、条件、状态和备注。 */
-    public async httpBaseSrmUpdateRouteRule(principal: AuthPrincipal, input: RouteDto.UpdateRouteRuleDto): Promise<Schema.TbSrmRouteRule> {
-        const conditions = await this.routeUtilsService.normalizeConditions(input.conditions)
-        return this.repository.manager.transaction(async manager => {
-            const rule = await manager.findOneBy(Schema.TbSrmRouteRule, { keyId: input.keyId })
-            if (!rule) throw new NotFoundException('规则组不存在')
-            manager.merge(Schema.TbSrmRouteRule, rule, {
-                sort: input.sort ?? rule.sort,
-                conditions,
-                status: input.status,
-                remark: input.remark?.trim() || null,
-                modifyBy: principal.uid
-            })
-            return manager.save(rule)
-        })
-    }
-
-    /** 删除规则组。 */
-    public async httpBaseSrmDeleteRouteRule(input: RouteDto.RouteRuleKeyDto): Promise<{ success: boolean }> {
-        const result = await this.repository.manager.delete(Schema.TbSrmRouteRule, { keyId: input.keyId })
-        if (!result.affected) throw new NotFoundException('规则组不存在')
-        return { success: true }
-    }
-
     /** 路由下的规则组：附带中文描述。 */
     public async httpBaseSrmListRouteRule(input: RouteDto.ListRouteRuleDto): Promise<RouteDto.RouteRuleResponseDto[]> {
         const rules = await this.repository.manager.find(Schema.TbSrmRouteRule, {
@@ -191,6 +148,90 @@ export class RouteService {
             rules.flatMap(rule => this.routeUtilsService.countryKeyIdsOf(rule))
         )
         return rules.map(rule => ({ ...rule, description: this.routeUtilsService.describeRule(rule, countryNames) }))
+    }
+
+    /**
+     * 更新路由规则绑定：以本次提交的规则组列表为准配置规则。
+     * 有主键的规则就地更新，没有主键的规则新增，未提交的规则删除；排序按列表下标写入。
+     */
+    public async httpBaseSrmBindRouteRule(
+        principal: AuthPrincipal,
+        input: RouteDto.BindRouteRuleDto
+    ): Promise<RouteDto.RouteCountResponseDto> {
+        const items = input.list ?? []
+        const keyIds = items.map(item => item.keyId).filter((keyId): keyId is number => Number.isInteger(keyId))
+        if (new Set(keyIds).size !== keyIds.length) {
+            throw new BadRequestException('不能重复提交相同规则组')
+        }
+        const normalized = await Promise.all(
+            items.map(async (item, index) => ({
+                keyId: item.keyId,
+                sort: index,
+                conditions: await this.routeUtilsService.normalizeConditions(item.conditions),
+                status: item.status,
+                remark: item.remark?.trim() || null
+            }))
+        )
+
+        return this.repository.manager.transaction(async manager => {
+            const route = await this.routeUtilsService.findRouteRequired(manager, input.routeKeyId)
+            const current = await manager.find(Schema.TbSrmRouteRule, {
+                where: { routeKeyId: route.keyId }
+            })
+            const currentById = new Map(current.map(rule => [rule.keyId, rule]))
+            const missing = keyIds.filter(keyId => !currentById.has(keyId))
+            if (missing.length > 0) {
+                throw new NotFoundException('部分规则组不存在或不属于当前路由')
+            }
+
+            const selected = new Set(keyIds)
+            const removed = current.filter(rule => !selected.has(rule.keyId))
+            if (removed.length > 0) {
+                await manager.delete(Schema.TbSrmRouteRule, {
+                    keyId: In(removed.map(rule => rule.keyId))
+                })
+            }
+
+            for (const item of normalized) {
+                if (!item.keyId) continue
+                const rule = currentById.get(item.keyId)
+                if (!rule) continue
+                const unchanged =
+                    rule.sort === item.sort &&
+                    rule.status === item.status &&
+                    (rule.remark ?? null) === item.remark &&
+                    JSON.stringify(rule.conditions ?? []) === JSON.stringify(item.conditions)
+                if (unchanged) continue
+                await manager.update(
+                    Schema.TbSrmRouteRule,
+                    { keyId: rule.keyId },
+                    {
+                        sort: item.sort,
+                        conditions: item.conditions,
+                        status: item.status,
+                        remark: item.remark,
+                        modifyBy: principal.uid
+                    }
+                )
+            }
+
+            const added = normalized.filter(item => !item.keyId)
+            if (added.length > 0) {
+                await manager.insert(
+                    Schema.TbSrmRouteRule,
+                    added.map(item => ({
+                        routeKeyId: route.keyId,
+                        sort: item.sort,
+                        conditions: item.conditions,
+                        status: item.status,
+                        remark: item.remark,
+                        createBy: principal.uid,
+                        modifyBy: principal.uid
+                    }))
+                )
+            }
+            return { count: items.length }
+        })
     }
 
     /* ------------------------------ 路由通道 ------------------------------ */

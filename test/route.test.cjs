@@ -260,24 +260,161 @@ test('查询路由通道按路由主键索引绑定记录', async () => {
     )
 })
 
-test('新增规则组校验字段与操作符、类型取值、号码段和方向', async () => {
-    const tables = { TbSrmRoute: [{ keyId: 1, name: '通用', type: 'SOTP', status: 'enable' }], TbSrmRouteRule: [] }
-    const service = createService(createManager(tables))
-    const create = conditions => service.httpBaseSrmCreateRouteRule(principal, { routeKeyId: 1, sort: 2, conditions })
-    await assert.rejects(() => create([{ field: 'prefix', operator: 'in', value: ['852'] }]), /不支持操作符/)
-    await assert.rejects(() => create([{ field: 'type', operator: 'in', value: ['XXXX'] }]), /短信类型取值/)
-    await assert.rejects(() => create([{ field: 'prefix', operator: 'prefix', value: ['85a'] }]), /号码段只能是/)
-    await assert.rejects(() => create([{ field: 'country', operator: 'in', value: ['9999'] }]), /方向不存在：9999/)
-    const rule = await create([
-        { field: 'country', operator: 'in', value: ['1007', '1007', ' '] },
-        { field: 'prefix', operator: 'prefix', value: ['+85291'] }
-    ])
-    assert.equal(rule.sort, 2)
-    assert.deepEqual(rule.conditions, [
-        { field: 'country', operator: 'in', value: ['1007'] },
-        { field: 'prefix', operator: 'prefix', value: ['85291'] }
-    ])
+test('规则条件校验字段与操作符、类型取值、号码段和方向', async () => {
+    const service = createService(createManager({ TbSrmRoute: [], TbSrmRouteRule: [] }))
+    const normalize = conditions => service.routeUtilsService.normalizeConditions(conditions)
+    await assert.rejects(() => normalize([{ field: 'prefix', operator: 'in', value: ['852'] }]), /不支持操作符/)
+    await assert.rejects(() => normalize([{ field: 'type', operator: 'in', value: ['XXXX'] }]), /短信类型取值/)
+    await assert.rejects(() => normalize([{ field: 'prefix', operator: 'prefix', value: ['85a'] }]), /号码段只能是/)
+    await assert.rejects(() => normalize([{ field: 'country', operator: 'in', value: ['9999'] }]), /方向不存在：9999/)
+    assert.deepEqual(
+        await normalize([
+            { field: 'country', operator: 'in', value: ['1007', '1007', ' '] },
+            { field: 'prefix', operator: 'prefix', value: ['+85291'] }
+        ]),
+        [
+            { field: 'country', operator: 'in', value: ['1007'] },
+            { field: 'prefix', operator: 'prefix', value: ['85291'] }
+        ]
+    )
 })
+test('更新路由规则绑定：按列表顺序配置规则，未提交的规则被移除', async () => {
+    const tables = {
+        TbSrmRoute: [{ keyId: 1, name: '通用', type: 'SOTP', status: 'enable' }],
+        TbSrmRouteRule: [
+            {
+                keyId: 8,
+                routeKeyId: 1,
+                sort: 0,
+                status: 'enable',
+                remark: null,
+                conditions: [{ field: 'type', operator: 'in', value: ['SOTP'] }]
+            },
+            {
+                keyId: 9,
+                routeKeyId: 1,
+                sort: 1,
+                status: 'enable',
+                remark: '旧规则',
+                conditions: [{ field: 'country', operator: 'in', value: ['1008'] }]
+            }
+        ]
+    }
+    const deleted = []
+    const manager = createManager(tables, {
+        delete: async (entity, where) => {
+            deleted.push([entity.name, where.keyId?._value])
+            const ids = where.keyId?._value ?? []
+            tables[entity.name] = (tables[entity.name] ?? []).filter(row => !ids.includes(row.keyId))
+            return { affected: ids.length }
+        }
+    })
+    const service = createService(manager)
+    assert.deepEqual(
+        await service.httpBaseSrmBindRouteRule(principal, {
+            routeKeyId: 1,
+            list: [
+                {
+                    keyId: 9,
+                    status: 'disable',
+                    remark: ' 菲律宾 ',
+                    conditions: [{ field: 'country', operator: 'in', value: ['1008', '1008'] }]
+                },
+                { status: 'enable', conditions: [{ field: 'prefix', operator: 'prefix', value: ['+85291'] }] }
+            ]
+        }),
+        { count: 2 }
+    )
+    assert.deepEqual(deleted, [['TbSrmRouteRule', [8]]])
+    assert.deepEqual(
+        tables.TbSrmRouteRule.find(item => item.keyId === 9),
+        {
+            keyId: 9,
+            routeKeyId: 1,
+            sort: 0,
+            status: 'disable',
+            remark: '菲律宾',
+            conditions: [{ field: 'country', operator: 'in', value: ['1008'] }],
+            modifyBy: '30001'
+        }
+    )
+    assert.deepEqual(
+        tables.TbSrmRouteRule.find(item => !item.keyId),
+        {
+            routeKeyId: 1,
+            sort: 1,
+            conditions: [{ field: 'prefix', operator: 'prefix', value: ['85291'] }],
+            status: 'enable',
+            remark: null,
+            createBy: '30001',
+            modifyBy: '30001'
+        }
+    )
+})
+
+test('更新路由规则绑定：未变化的规则不写库，重复或不属于当前路由的主键会被拒绝', async () => {
+    const rule = {
+        keyId: 8,
+        routeKeyId: 1,
+        sort: 0,
+        status: 'enable',
+        remark: null,
+        conditions: [{ field: 'type', operator: 'in', value: ['SOTP'] }]
+    }
+    const tables = { TbSrmRoute: [{ keyId: 1, name: '通用', type: 'SOTP', status: 'enable' }], TbSrmRouteRule: [{ ...rule }] }
+    const updated = []
+    const manager = createManager(tables, {
+        update: async (...args) => updated.push(args)
+    })
+    const service = createService(manager)
+    assert.deepEqual(
+        await service.httpBaseSrmBindRouteRule(principal, {
+            routeKeyId: 1,
+            list: [{ keyId: 8, status: 'enable', conditions: [{ field: 'type', operator: 'in', value: ['SOTP'] }] }]
+        }),
+        { count: 1 }
+    )
+    assert.deepEqual(updated, [])
+    await assert.rejects(
+        () =>
+            service.httpBaseSrmBindRouteRule(principal, {
+                routeKeyId: 1,
+                list: [
+                    { keyId: 8, status: 'enable', conditions: [{ field: 'type', operator: 'in', value: ['SOTP'] }] },
+                    { keyId: 8, status: 'disable', conditions: [{ field: 'type', operator: 'in', value: ['NTFY'] }] }
+                ]
+            }),
+        /不能重复提交相同规则组/
+    )
+    await assert.rejects(
+        () =>
+            service.httpBaseSrmBindRouteRule(principal, {
+                routeKeyId: 1,
+                list: [{ keyId: 99, status: 'enable', conditions: [{ field: 'type', operator: 'in', value: ['SOTP'] }] }]
+            }),
+        /部分规则组不存在或不属于当前路由/
+    )
+    assert.deepEqual(tables.TbSrmRouteRule, [rule])
+})
+
+test('更新路由规则绑定：空列表清空规则组，路由不存在时拒绝', async () => {
+    const tables = {
+        TbSrmRoute: [{ keyId: 1, name: '通用', type: 'SOTP', status: 'enable' }],
+        TbSrmRouteRule: [{ keyId: 8, routeKeyId: 1, sort: 0, status: 'enable', conditions: [] }]
+    }
+    const manager = createManager(tables, {
+        delete: async (entity, where) => {
+            const ids = where.keyId?._value ?? []
+            tables[entity.name] = (tables[entity.name] ?? []).filter(row => !ids.includes(row.keyId))
+            return { affected: ids.length }
+        }
+    })
+    const service = createService(manager)
+    assert.deepEqual(await service.httpBaseSrmBindRouteRule(principal, { routeKeyId: 1, list: [] }), { count: 0 })
+    assert.deepEqual(tables.TbSrmRouteRule, [])
+    await assert.rejects(() => service.httpBaseSrmBindRouteRule(principal, { routeKeyId: 99, list: [] }), /路由不存在/)
+})
+
 test('路由详情返回路由本身和绑定的通道、短信应用', async () => {
     const route = { keyId: 1, name: '通用营销', alias: 'LSK1233-MRKT-A001', type: 'MRKT', priority: 1, status: 'enable' }
     const service = createService(createManager({ TbSrmRoute: [route] }))

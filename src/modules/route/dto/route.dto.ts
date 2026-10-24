@@ -93,23 +93,24 @@ export class RouteSelectResponseDto extends PickType(Schema.TbSrmRouteDto, [
 
 /* ------------------------------ 规则组 ------------------------------ */
 
-/** 新增规则组入参：POST /route/rule/create。 */
-export class CreateRouteRuleDto extends IntersectionType(
-    PickType(Schema.TbSrmRouteRuleDto, ['routeKeyId', 'conditions'] as const),
-    PartialType(PickType(Schema.TbSrmRouteRuleDto, ['sort', 'status', 'remark'] as const))
-) {}
-
-/** 编辑规则组入参：POST /route/rule/update；可修改排序、条件、状态和备注。 */
-export class UpdateRouteRuleDto extends IntersectionType(
-    PickType(Schema.TbSrmRouteRuleDto, ['keyId', 'conditions', 'status'] as const),
-    PartialType(PickType(Schema.TbSrmRouteRuleDto, ['sort', 'remark'] as const))
-) {}
-
-/** 规则组主键入参：POST /route/rule/delete。 */
-export class RouteRuleKeyDto extends PickType(Schema.TbSrmRouteRuleDto, ['keyId'] as const) {}
-
 /** 规则组列表入参：GET /route/rule/list。 */
 export class ListRouteRuleDto extends PickType(Schema.TbSrmRouteRuleDto, ['routeKeyId'] as const) {}
+
+/** 绑定规则组明细：已有规则带主键，新增规则不带主键。排序由列表顺序决定，不接收单独的 sort。 */
+export class BindRouteRuleItemDto extends IntersectionType(
+    PartialType(PickType(Schema.TbSrmRouteRuleDto, ['keyId', 'remark'] as const)),
+    PickType(Schema.TbSrmRouteRuleDto, ['conditions', 'status'] as const)
+) {}
+
+/** 更新路由规则绑定入参：POST /route/rule/bind；以本次提交的规则组列表为准配置条件、状态和备注，并按列表顺序写入排序。空列表表示清空该路由的规则组。 */
+export class BindRouteRuleDto extends PickType(Schema.TbSrmRouteRuleDto, ['routeKeyId'] as const) {
+    @ApiProperty({ description: '规则组列表，按提交顺序匹配；空列表表示清空该路由的规则组', type: [BindRouteRuleItemDto] })
+    @IsArray({ message: '规则组列表必须是数组' })
+    @ArrayMaxSize(100, { message: '单次最多配置100个规则组' })
+    @ValidateNested({ each: true })
+    @Type(() => BindRouteRuleItemDto)
+    list: BindRouteRuleItemDto[]
+}
 
 /** 规则组列表项：附带规则组的中文描述。 */
 export class RouteRuleResponseDto extends Schema.TbSrmRouteRuleDto {

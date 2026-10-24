@@ -80,31 +80,13 @@ export class RouteController {
         return this.routeService.httpBaseSrmBindRouteApp(principal, input)
     }
 
-    @ApiServiceDecorator(Post('rule/create'), {
-        operation: { summary: '新增规则组' },
-        request: { source: 'body', type: RouteDto.CreateRouteRuleDto },
-        response: { type: Schema.TbSrmRouteRuleDto, description: '新增后的规则组' }
+    @ApiServiceDecorator(Post('rule/bind'), {
+        operation: { summary: '更新路由规则绑定' },
+        request: { source: 'body', type: RouteDto.BindRouteRuleDto },
+        response: { type: RouteDto.RouteCountResponseDto, description: '绑定的规则数量' }
     })
-    public async httpBaseSrmCreateRouteRule(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.CreateRouteRuleDto) {
-        return this.routeService.httpBaseSrmCreateRouteRule(principal, input)
-    }
-
-    @ApiServiceDecorator(Post('rule/update'), {
-        operation: { summary: '编辑规则组' },
-        request: { source: 'body', type: RouteDto.UpdateRouteRuleDto },
-        response: { type: Schema.TbSrmRouteRuleDto, description: '编辑后的规则组' }
-    })
-    public async httpBaseSrmUpdateRouteRule(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.UpdateRouteRuleDto) {
-        return this.routeService.httpBaseSrmUpdateRouteRule(principal, input)
-    }
-
-    @ApiServiceDecorator(Post('rule/delete'), {
-        operation: { summary: '删除规则组' },
-        request: { source: 'body', type: RouteDto.RouteRuleKeyDto },
-        response: { type: SuccessResponseDataDto, description: '删除结果' }
-    })
-    public async httpBaseSrmDeleteRouteRule(@Body() input: RouteDto.RouteRuleKeyDto) {
-        return this.routeService.httpBaseSrmDeleteRouteRule(input)
+    public async httpBaseSrmBindRouteRule(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.BindRouteRuleDto) {
+        return this.routeService.httpBaseSrmBindRouteRule(principal, input)
     }
 
     @ApiServiceDecorator(Get('rule/list'), {
