@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { InjectRepository, EntityManager, In, Repository } from '@wlisfes/chat-web-base-schema/database'
-import { type LinkOptions } from '@wlisfes/chat-web-base-schema/utils'
+import { type LinkIndex, type LinkOptions } from '@wlisfes/chat-web-base-schema/utils'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { ConfigService } from '@nestjs/config'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
@@ -132,25 +132,39 @@ export class ChannelUtilsService {
         })
     }
 
-    /** 批量还原通道列表里的端口统计，供列表返回。 */
-    public async findChannelPortStats(keyIds: number[]): Promise<{
-        ports: Array<Pick<Schema.TbSrmChannelPort, 'channelKeyId' | 'status'>>
-        routes: Array<Pick<Schema.TbSrmRouteChannel, 'channelKeyId'>>
-    }> {
-        if (keyIds.length === 0) {
-            return { ports: [], routes: [] }
+    /** 批量查询通道绑定端口，按通道主键索引。 */
+    public async findChannelPortLinks(channelKeyIds: number[]): Promise<LinkIndex<Schema.TbSrmChannelPort>> {
+        const linksOptions = new Map<number, Schema.TbSrmChannelPort[]>()
+        if (channelKeyIds.length === 0) return { links: [], linksOptions }
+        const links = await this.portRepository.find({
+            where: { channelKeyId: In(channelKeyIds) },
+            order: { simbankKeyId: 'ASC', portKeyId: 'ASC' },
+            select: ['keyId', 'channelKeyId', 'status']
+        })
+        for (const channelKeyId of channelKeyIds) {
+            linksOptions.set(
+                channelKeyId,
+                links.filter(item => item.channelKeyId === channelKeyId)
+            )
         }
-        const [ports, routes] = await Promise.all([
-            this.portRepository.find({
-                select: { channelKeyId: true, status: true },
-                where: { channelKeyId: In(keyIds) }
-            }),
-            this.repository.manager.find(Schema.TbSrmRouteChannel, {
-                select: { channelKeyId: true },
-                where: { channelKeyId: In(keyIds) }
-            })
-        ])
-        return { ports, routes }
+        return { links, linksOptions }
+    }
+
+    /** 批量查询引用通道的路由绑定，按通道主键索引。 */
+    public async findChannelRouteLinks(channelKeyIds: number[]): Promise<LinkIndex<Schema.TbSrmRouteChannel>> {
+        const linksOptions = new Map<number, Schema.TbSrmRouteChannel[]>()
+        if (channelKeyIds.length === 0) return { links: [], linksOptions }
+        const links = await this.repository.manager.find(Schema.TbSrmRouteChannel, {
+            where: { channelKeyId: In(channelKeyIds) },
+            select: ['keyId', 'channelKeyId', 'routeKeyId', 'status']
+        })
+        for (const channelKeyId of channelKeyIds) {
+            linksOptions.set(
+                channelKeyId,
+                links.filter(item => item.channelKeyId === channelKeyId)
+            )
+        }
+        return { links, linksOptions }
     }
 
     private requireEmployeeNumber(number: string | undefined, label: string): string {

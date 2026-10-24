@@ -1,8 +1,7 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { EntityManager, In, InjectRepository, Repository } from '@wlisfes/chat-web-base-schema/database'
-import { isNotEmpty, type LinkIndex } from '@wlisfes/chat-web-base-schema/utils'
+import { type LinkIndex } from '@wlisfes/chat-web-base-schema/utils'
 import { ChannelUtilsService } from '@/modules/channel/channel.utils.service'
-import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { ConfigService } from '@nestjs/config'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
@@ -138,64 +137,9 @@ export class RouteUtilsService {
         return route
     }
 
-    /** 取归属人工号：当前登录人直接用工号，其他人通过 Skyline 账号还原。 */
-    public async resolveOwnerNumber(principal: AuthPrincipal, ownerUserUid: string): Promise<string> {
-        if (ownerUserUid === principal.uid) return this.requireEmployeeNumber(principal.number, '当前登录账号')
-        const [user] = await this.skylineFeignClient.httpBaseSkylineColumnUserResolver(this.authorization(), { uids: [ownerUserUid] })
-        if (!user) throw new BadRequestException('归属人不存在')
-        return this.requireEmployeeNumber(user.number, '归属人')
-    }
-
-    /** 校验账号工号可用于生成路由别名。 */
-    public requireEmployeeNumber(number: string | undefined, label: string): string {
-        const userNumber = number?.trim()
-        if (!isNotEmpty(userNumber) || !/^[A-Za-z0-9]+$/.test(userNumber)) {
-            throw new BadRequestException(`${label}缺少有效工号，无法生成路由别名`)
-        }
-        return userNumber
-    }
-
-    /**
-     * 生成路由别名：LSK + 归属人工号 + 路由类型 + 分段序号，例如 LSK1233-MRKT-A001。
-     * 序号规则与短信应用别名一致：A001-Z999，用完后进入 AA01-ZZ99。同一工号同一类型内自增。
-     */
-    public async generateAlias(manager: EntityManager, number: string, type: Schema.TbSrmRouteType): Promise<string> {
-        const prefix = `LSK${number}-${type}-`
-        const routes = await manager.find(Schema.TbSrmRoute, { select: { keyId: true, alias: true, type: true } })
-        const maxSequence = routes.reduce((max, route) => {
-            if (route.type !== type) return max
-            return Math.max(max, this.parseAliasSequence(route.alias, prefix))
-        }, 0)
-        return `${prefix}${this.formatAliasSequence(maxSequence + 1)}`
-    }
-
-    /** 把别名尾部序号转换为连续序号；不符合当前规则的历史别名返回 0。 */
-    public parseAliasSequence(alias: string, prefix: string): number {
-        const code = alias?.startsWith(prefix) ? alias.slice(prefix.length) : ''
-        const single = /^([A-Z])(\d{3})$/.exec(code)
-        if (single && Number(single[2]) > 0) return (single[1].charCodeAt(0) - 65) * 999 + Number(single[2])
-        const double = /^([A-Z])([A-Z])(\d{2})$/.exec(code)
-        if (double && Number(double[3]) > 0) {
-            const group = (double[1].charCodeAt(0) - 65) * 26 + double[2].charCodeAt(0) - 65
-            return 26 * 999 + group * 99 + Number(double[3])
-        }
-        return 0
-    }
-
-    /** 把连续序号格式化为分段序号：A001-Z999，之后 AA01-ZZ99。 */
-    public formatAliasSequence(sequence: number): string {
-        const singleCapacity = 26 * 999
-        const capacity = singleCapacity + 26 * 26 * 99
-        if (!Number.isInteger(sequence) || sequence < 1 || sequence > capacity) {
-            throw new ConflictException('当前工号该类型路由别名序号已用完')
-        }
-        if (sequence <= singleCapacity) {
-            const index = sequence - 1
-            return `${String.fromCharCode(65 + Math.floor(index / 999))}${String((index % 999) + 1).padStart(3, '0')}`
-        }
-        const index = sequence - singleCapacity - 1
-        const group = Math.floor(index / 99)
-        return `${String.fromCharCode(65 + Math.floor(group / 26), 65 + (group % 26))}${String((index % 99) + 1).padStart(2, '0')}`
+    /** 生成路由别名：LSK + 主键 + 路由类型，例如 LSK1002001-MRKT。 */
+    public formatAlias(keyId: number, type: Schema.TbSrmRouteType): string {
+        return `LSK${keyId}-${type}`
     }
 
     /** 服务间凭据。 */

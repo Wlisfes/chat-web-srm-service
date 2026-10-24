@@ -32,25 +32,22 @@ export class RouteService {
 
     /* ------------------------------ 路由 ------------------------------ */
 
-    /** 新增路由：别名按 LSK + 归属人工号 + 路由类型 + 分段序号自动生成；类型创建后不可修改。 */
+    /** 新增路由：插入后按 LSK + 主键 + 路由类型生成别名；类型创建后不可修改。 */
     public async httpBaseSrmCreateRoute(principal: AuthPrincipal, input: RouteDto.CreateRouteDto): Promise<Schema.TbSrmRoute> {
-        const ownerUserUid = input.ownerUserUid ?? principal.uid
-        const ownerNumber = await this.routeUtilsService.resolveOwnerNumber(principal, ownerUserUid)
         return this.repository.manager.transaction(async manager => {
-            const alias = await this.routeUtilsService.generateAlias(manager, ownerNumber, input.type)
-            return manager.save(
+            const route = await manager.save(
                 manager.create(Schema.TbSrmRoute, {
                     name: input.name.trim(),
-                    alias,
                     type: input.type,
                     priority: input.priority ?? 1,
                     status: input.status ?? Schema.TbSrmRouteStatus.ENABLE,
-                    ownerUserUid,
                     remark: input.remark?.trim() || null,
                     createBy: principal.uid,
                     modifyBy: principal.uid
                 })
             )
+            route.alias = this.routeUtilsService.formatAlias(route.keyId, route.type)
+            return manager.save(route)
         })
     }
 

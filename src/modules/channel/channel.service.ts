@@ -123,55 +123,37 @@ export class ChannelService {
         const { page, size } = fetchUntiePagination(input)
         return this.database.builder(this.repository, async qb => {
             const keyword = input.alias?.trim()
-            if (keyword) {
+            if (isNotEmpty(keyword)) {
                 qb.andWhere('(t.alias LIKE :keyword OR t.name LIKE :keyword)', { keyword: `%${keyword}%` })
             }
-            if (isNotEmpty(input.type)) {
-                qb.andWhere('t.type = :type', { type: input.type })
-            }
-            if (isNotEmpty(input.countryKeyId)) {
-                qb.andWhere('t.countryKeyId = :countryKeyId', { countryKeyId: input.countryKeyId })
-            }
-            if (isNotEmpty(input.ownerUserUid)) {
-                qb.andWhere('t.ownerUserUid = :ownerUserUid', { ownerUserUid: input.ownerUserUid })
-            }
-            if (isNotEmpty(input.status)) {
-                qb.andWhere('t.status = :status', { status: input.status })
-            }
+            if (isNotEmpty(input.type)) qb.andWhere('t.type = :type', { type: input.type })
+            if (isNotEmpty(input.countryKeyId)) qb.andWhere('t.countryKeyId = :countryKeyId', { countryKeyId: input.countryKeyId })
+            if (isNotEmpty(input.ownerUserUid)) qb.andWhere('t.ownerUserUid = :ownerUserUid', { ownerUserUid: input.ownerUserUid })
+            if (isNotEmpty(input.status)) qb.andWhere('t.status = :status', { status: input.status })
             qb.orderBy('t.createTime', 'DESC')
             qb.addOrderBy('t.keyId', 'DESC')
             qb.skip((page - 1) * size).take(size)
             return await qb.getManyAndCount().then(async ([list, total]) => {
                 const keyIds = list.map(item => item.keyId)
-                const { ports, routes } = await this.channelUtilsService.findChannelPortStats(keyIds)
-                const portGroups = new Map<number, typeof ports>()
-                for (const port of ports) {
-                    const group = portGroups.get(port.channelKeyId) ?? []
-                    group.push(port)
-                    portGroups.set(port.channelKeyId, group)
-                }
-                const routeCounts = new Map<number, number>()
-                for (const route of routes) {
-                    routeCounts.set(route.channelKeyId, (routeCounts.get(route.channelKeyId) ?? 0) + 1)
-                }
-                const rows = list.map(item => {
-                    const ownPorts = portGroups.get(item.keyId) ?? []
+                const [port, route] = await Promise.all([
+                    this.channelUtilsService.findChannelPortLinks(keyIds),
+                    this.channelUtilsService.findChannelRouteLinks(keyIds)
+                ])
+                const items = list.map(item => {
+                    const ports = port.linksOptions.get(item.keyId) ?? []
                     return {
                         ...item,
-                        portCount: ownPorts.length,
-                        enablePortCount: ownPorts.filter(port => port.status === Schema.TbSrmChannelPortStatus.ENABLE).length,
-                        routeCount: routeCounts.get(item.keyId) ?? 0
+                        portCount: ports.length,
+                        enablePortCount: ports.filter(port => port.status === Schema.TbSrmChannelPortStatus.ENABLE).length,
+                        routeCount: route.linksOptions.get(item.keyId)?.length ?? 0
                     }
                 })
-                await Promise.all([
-                    feign.fetchAppendSkylineCountryOptions(this.skylineFeignClient, this.configService, rows, ['countryKeyId']),
-                    feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, rows, [
-                        'ownerUserUid',
-                        'createBy',
-                        'modifyBy'
-                    ])
+                await feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, items, [
+                    'ownerUserUid',
+                    'createBy',
+                    'modifyBy'
                 ])
-                return fetchResolver({ page, size, total, list: rows })
+                return fetchResolver({ page, size, total, list: items })
             })
         })
     }
