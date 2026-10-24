@@ -66,11 +66,8 @@ export class RouteCoverageDto {
     activeChannelCount: number
 }
 
-/** 路由列表项：路由信息，以及绑定的通道和短信应用。 */
-export class RouteColumnResponseDto {
-    @ApiProperty({ description: '路由信息', type: Schema.TbSrmRouteDto })
-    item: Schema.TbSrmRoute
-
+/** 路由列表项：路由字段展开，并附带绑定的通道和短信应用。 */
+export class RouteColumnResponseDto extends Schema.TbSrmRouteDto {
     @ApiProperty({ description: '绑定的通道列表', type: [Schema.TbSrmRouteChannel] })
     channels: Schema.TbSrmRouteChannel[]
 

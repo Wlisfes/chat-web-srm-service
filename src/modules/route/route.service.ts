@@ -127,7 +127,7 @@ export class RouteService {
                     this.routeUtilsService.findRouteApps(routeKeyIds)
                 ])
                 const items = list.map(item => ({
-                    item,
+                    ...item,
                     channels: channel.linksOptions.get(item.keyId) ?? [],
                     apps: app.linksOptions.get(item.keyId) ?? []
                 }))
