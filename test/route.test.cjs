@@ -64,7 +64,8 @@ function createService(manager) {
         findOneBy: where => manager.findOneBy({ name: 'TbSrmRoute' }, where)
     }
     const configService = { get: () => 'service-token' }
-    const utils = new RouteUtilsService(repository, skyline, configService)
+    const channelUtils = { findChannels: async () => ({ links: [], linksOptions: new Map() }) }
+    const utils = new RouteUtilsService(repository, skyline, configService, channelUtils, sms)
     return new RouteService(repository, {}, sms, utils)
 }
 

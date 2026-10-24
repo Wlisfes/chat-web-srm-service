@@ -88,5 +88,4 @@ export class RouteController {
     public async httpBaseSrmBindRouteRule(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.BindRouteRuleDto) {
         return this.routeService.httpBaseSrmBindRouteRule(principal, input)
     }
-
 }
