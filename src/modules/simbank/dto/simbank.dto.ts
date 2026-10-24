@@ -180,7 +180,7 @@ export class SimbankPortKeyDto extends PickType(Schema.TbSrmSimbankPortDto, ['ke
 /** 短信历史关键词。 */
 class SimbankMessageKeywordDto {
     @ApiProperty({
-        description: '关键词：发送号码、接收号码、内容、SIM、ICCID、任务、设备、通道、供应商或状态码',
+        description: '关键词：发送号码、接收号码、内容、SIM、ICCID、设备、通道、供应商或状态码',
         required: false,
         example: '86138'
     })
