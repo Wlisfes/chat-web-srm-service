@@ -9,7 +9,6 @@ const skyline = {
     httpBaseSkylineColumnCountryResolver: async (_auth, { keyIds }) => keyIds.map(keyId => countries[keyId]).filter(Boolean),
     httpBaseSkylineColumnUserResolver: async () => []
 }
-const crm = { httpBaseCrmColumnUserResolver: async (_auth, { keyIds }) => keyIds.map(keyId => ({ keyId, name: '客户' })) }
 const apps = { 1001: { keyId: 1001, userKeyId: 10241000, type: 'SOTP', appName: '登录验证码' } }
 const sms = { httpBaseSmsColumnAppResolver: async (_auth, { keyIds }) => keyIds.map(keyId => apps[keyId]).filter(Boolean) }
 
@@ -66,7 +65,7 @@ function createService(manager) {
     }
     const configService = { get: () => 'service-token' }
     const utils = new RouteUtilsService(repository, skyline, configService)
-    return new RouteService(repository, {}, skyline, crm, sms, configService, utils)
+    return new RouteService(repository, {}, sms, utils)
 }
 
 test('新增路由按传入类型保存，优先级默认 1；编辑不能修改类型', async () => {
@@ -423,7 +422,6 @@ test('路由详情返回路由本身和绑定的通道、短信应用', async ()
         assert.deepEqual(routeKeyIds, [1])
         return { links: channels, linksOptions: new Map([[1, channels]]) }
     }
-    service.skylineFeignClient = { httpBaseSkylineColumnCountryResolver: async () => [] }
     const detail = await service.httpBaseSrmRouteResolver({ keyId: 1 })
     assert.equal(detail.alias, 'LSK1233-MRKT-A001')
     assert.deepEqual(detail.channels, channels)

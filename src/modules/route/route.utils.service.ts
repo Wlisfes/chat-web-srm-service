@@ -1,11 +1,10 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
-import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { EntityManager, In, InjectRepository, Repository } from '@wlisfes/chat-web-base-schema/database'
+import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { isNotEmpty } from '@wlisfes/chat-web-base-schema/utils'
+import { ConfigService } from '@nestjs/config'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
-import * as RouteDto from '@/modules/route/dto/route.dto'
 
 /** 按路由主键索引的绑定记录。 */
 export type RouteLinkIndex<T> = {
@@ -49,13 +48,6 @@ export class RouteUtilsService {
         }
         return result
     }
-    /** 规则组中引用的方向主键。 */
-    public countryKeyIdsOf(rule: Schema.TbSrmRouteRule): number[] {
-        return (rule.conditions ?? [])
-            .filter(item => item.field === Schema.TbSrmRouteRuleField.COUNTRY)
-            .flatMap(item => item.value.map(Number))
-    }
-
     /** 批量查询方向中文名，按 100 个一批调用 Skyline Feign。 */
     public async findCountryNames(keyIds: number[]): Promise<Map<number, string>> {
         const unique = [...new Set(keyIds)].filter(keyId => Number.isInteger(keyId) && keyId > 0)
@@ -69,18 +61,24 @@ export class RouteUtilsService {
         return names
     }
 
-    /** 规则组描述：条件之间用“且”连接。 */
-    public describeRule(rule: Schema.TbSrmRouteRule, countryNames: Map<number, string>): string {
-        const fieldLabel = Object.fromEntries(Schema.TbSrmRouteRuleFieldDefinition.options.map(item => [item.value, item.label]))
-        const operatorLabel = Object.fromEntries(Schema.TbSrmRouteRuleOperatorDefinition.options.map(item => [item.value, item.label]))
-        return (rule.conditions ?? [])
-            .map(condition => {
-                const values = condition.value.map(item =>
-                    condition.field === Schema.TbSrmRouteRuleField.COUNTRY ? (countryNames.get(Number(item)) ?? item) : item
-                )
-                return `${fieldLabel[condition.field]} ${operatorLabel[condition.operator]} ${values.join('/')}`
-            })
-            .join(' 且 ')
+    /** 查询路由下绑定的规则 */
+    public async findRouteRules(routeKeyIds: number[]): Promise<RouteLinkIndex<Schema.TbSrmRouteRule>> {
+        const linksOptions = new Map<number, Array<Schema.TbSrmRouteRule>>()
+        if (routeKeyIds.length === 0) {
+            return { links: [], linksOptions }
+        }
+        const links = await this.repository.manager.find(Schema.TbSrmRouteRule, {
+            where: { routeKeyId: In(routeKeyIds) },
+            order: { sort: 'ASC', keyId: 'ASC' },
+            select: ['keyId', 'routeKeyId', 'sort', 'status', 'remark', 'conditions']
+        })
+        for (const routeKeyId of routeKeyIds) {
+            linksOptions.set(
+                routeKeyId,
+                links.filter(item => item.routeKeyId === routeKeyId)
+            )
+        }
+        return { links, linksOptions }
     }
 
     /** 查询路由下绑定的应用 */
@@ -121,21 +119,6 @@ export class RouteUtilsService {
             )
         }
         return { links, linksOptions }
-    }
-
-    /** 按 方向 + 类型 汇总路由覆盖范围。 */
-    public groupCoverages(channels: RouteDto.RouteChannelResponseDto[]): RouteDto.RouteCoverageDto[] {
-        const groups = new Map<string, RouteDto.RouteCoverageDto>()
-        for (const item of channels) {
-            if (!item.channelOptions) continue
-            const { countryKeyId, type } = item.channelOptions
-            const key = `${countryKeyId}:${type}`
-            const group = groups.get(key) ?? { countryKeyId, type, channelCount: 0, activeChannelCount: 0 }
-            group.channelCount += 1
-            if (item.active) group.activeChannelCount += 1
-            groups.set(key, group)
-        }
-        return [...groups.values()].sort((a, b) => a.countryKeyId - b.countryKeyId || a.type.localeCompare(b.type))
     }
 
     /** 校验路由存在。 */

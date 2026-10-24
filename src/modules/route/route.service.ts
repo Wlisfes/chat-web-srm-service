@@ -3,7 +3,6 @@ import { PageResult, fetchResolver, fetchUntiePagination, isNotEmpty } from '@wl
 import { DataBaseService, In, InjectRepository, Repository } from '@wlisfes/chat-web-base-schema/database'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { RouteUtilsService } from '@/modules/route/route.utils.service'
-import { ConfigService } from '@nestjs/config'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 import * as RouteDto from '@/modules/route/dto/route.dto'
@@ -13,10 +12,7 @@ export class RouteService {
     constructor(
         @InjectRepository(Schema.TbSrmRoute) private readonly repository: Repository<Schema.TbSrmRoute>,
         private readonly database: DataBaseService,
-        private readonly skylineFeignClient: feign.FeignClientSkylineManager,
-        private readonly crmFeignClient: feign.FeignClientCrmManager,
         private readonly smsFeignClient: feign.FeignClientSmsManager,
-        private readonly configService: ConfigService,
         private readonly routeUtilsService: RouteUtilsService
     ) {}
 
@@ -87,17 +83,19 @@ export class RouteService {
         })
     }
 
-    /** 路由详情：附带绑定的通道和短信应用。 */
+    /** 路由详情：附带绑定的通道、短信应用和规则组。 */
     public async httpBaseSrmRouteResolver(input: RouteDto.RouteKeyDto): Promise<RouteDto.RouteResolverResponseDto> {
         return await this.routeUtilsService.findRouteRequired(this.repository.manager, input.keyId).then(async route => {
-            const [channel, app] = await Promise.all([
+            const [channel, app, rule] = await Promise.all([
                 this.routeUtilsService.findRouteChannels([route.keyId]),
-                this.routeUtilsService.findRouteApps([route.keyId])
+                this.routeUtilsService.findRouteApps([route.keyId]),
+                this.routeUtilsService.findRouteRules([route.keyId])
             ])
             return {
                 ...route,
                 channels: channel.linksOptions.get(route.keyId) ?? [],
-                apps: app.linksOptions.get(route.keyId) ?? []
+                apps: app.linksOptions.get(route.keyId) ?? [],
+                rules: rule.linksOptions.get(route.keyId) ?? []
             }
         })
     }
@@ -137,18 +135,6 @@ export class RouteService {
     }
 
     /* ------------------------------ 规则组 ------------------------------ */
-
-    /** 路由下的规则组：附带中文描述。 */
-    public async httpBaseSrmListRouteRule(input: RouteDto.ListRouteRuleDto): Promise<RouteDto.RouteRuleResponseDto[]> {
-        const rules = await this.repository.manager.find(Schema.TbSrmRouteRule, {
-            where: { routeKeyId: input.routeKeyId },
-            order: { sort: 'ASC', keyId: 'ASC' }
-        })
-        const countryNames = await this.routeUtilsService.findCountryNames(
-            rules.flatMap(rule => this.routeUtilsService.countryKeyIdsOf(rule))
-        )
-        return rules.map(rule => ({ ...rule, description: this.routeUtilsService.describeRule(rule, countryNames) }))
-    }
 
     /**
      * 更新路由规则绑定：以本次提交的规则组列表为准配置规则。
@@ -399,30 +385,5 @@ export class RouteService {
             }
             return { count: apps.length }
         })
-    }
-
-    /** 给短信应用绑定补上应用、客户、路由和操作人信息。 */
-    private async attachRouteAppOptions(rows: RouteDto.RouteAppColumnResponseDto[]): Promise<RouteDto.RouteAppColumnResponseDto[]> {
-        if (rows.length > 0) {
-            const authorization = this.routeUtilsService.authorization()
-            const [apps, users, routes] = await Promise.all([
-                this.smsFeignClient.httpBaseSmsColumnAppResolver(authorization, { keyIds: rows.map(item => item.appKeyId) }),
-                this.crmFeignClient.httpBaseCrmColumnUserResolver(authorization, {
-                    keyIds: [...new Set(rows.map(item => item.userKeyId))]
-                }),
-                this.repository.find({
-                    select: { keyId: true, name: true, alias: true, type: true, priority: true, status: true },
-                    where: { keyId: In([...new Set(rows.map(item => item.routeKeyId))]) }
-                })
-            ])
-            for (const row of rows) {
-                const user = users.find(item => item.keyId === row.userKeyId)
-                row.appKeyIdOptions = apps.find(item => item.keyId === row.appKeyId)
-                row.userKeyIdOptions = { keyId: row.userKeyId, name: user?.name, alias: user?.alias }
-                row.routeKeyIdOptions = routes.find(item => item.keyId === row.routeKeyId)
-            }
-        }
-        await feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, rows, ['createBy', 'modifyBy'])
-        return rows
     }
 }

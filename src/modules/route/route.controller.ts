@@ -47,7 +47,7 @@ export class RouteController {
     @ApiServiceDecorator(Get('resolve'), {
         operation: { summary: '获取路由详情' },
         request: { source: 'query', type: RouteDto.RouteKeyDto },
-        response: { type: RouteDto.RouteResolverResponseDto, description: '路由详情（含绑定的通道和短信应用）' }
+        response: { type: RouteDto.RouteResolverResponseDto, description: '路由详情（含绑定的通道、短信应用和规则组）' }
     })
     public async httpBaseSrmRouteResolver(@Query() input: RouteDto.RouteKeyDto) {
         return this.routeService.httpBaseSrmRouteResolver(input)
@@ -89,12 +89,4 @@ export class RouteController {
         return this.routeService.httpBaseSrmBindRouteRule(principal, input)
     }
 
-    @ApiServiceDecorator(Get('rule/list'), {
-        operation: { summary: '查询路由下的规则组' },
-        request: { source: 'query', type: RouteDto.ListRouteRuleDto },
-        response: { type: RouteDto.RouteRuleResponseDto, isArray: true, description: '规则组列表' }
-    })
-    public async httpBaseSrmListRouteRule(@Query() input: RouteDto.ListRouteRuleDto) {
-        return this.routeService.httpBaseSrmListRouteRule(input)
-    }
 }

@@ -3,7 +3,6 @@ import { Type } from 'class-transformer'
 import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsInt, Min, ValidateNested } from 'class-validator'
 import { EnumsResponseDto, PageResponseDataDto } from '@wlisfes/chat-web-base-schema/decorator'
 import { PageDto, VagueDto } from '@wlisfes/chat-web-base-schema/utils'
-import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 
 /** 路由静态枚举响应：GET /route/enums。 */
@@ -48,24 +47,6 @@ export class ListRouteDto extends IntersectionType(
     PartialType(PickType(Schema.TbSrmRouteDto, ['type', 'status'] as const))
 ) {}
 
-/** 路由覆盖的 方向 + 类型。 */
-export class RouteCoverageDto {
-    @ApiProperty({ description: '方向：Skyline 国家/地区主键', example: 1007 })
-    countryKeyId: number
-
-    @ApiProperty({ description: '短信类型', enum: Schema.TbSmsAppType, example: Schema.TbSmsAppType.MRKT })
-    type: Schema.TbSmsAppType
-
-    @ApiProperty({ description: '方向信息', required: false, type: feign.SkylineCountrySummaryResponseDto })
-    countryKeyIdOptions?: feign.SkylineCountrySummaryResponseDto
-
-    @ApiProperty({ description: '该方向和类型下的通道数', example: 3 })
-    channelCount: number
-
-    @ApiProperty({ description: '该方向和类型下的可用通道数', example: 2 })
-    activeChannelCount: number
-}
-
 /** 路由列表项：路由字段展开，并附带绑定的通道和短信应用。 */
 export class RouteColumnResponseDto extends Schema.TbSrmRouteDto {
     @ApiProperty({ description: '绑定的通道列表', type: [Schema.TbSrmRouteChannel] })
@@ -81,20 +62,7 @@ export class RoutePageResponseDto extends PageResponseDataDto {
     list: RouteColumnResponseDto[]
 }
 
-/** 路由下拉项：GET /route/select。 */
-export class RouteSelectResponseDto extends PickType(Schema.TbSrmRouteDto, [
-    'keyId',
-    'name',
-    'alias',
-    'type',
-    'priority',
-    'status'
-] as const) {}
-
 /* ------------------------------ 规则组 ------------------------------ */
-
-/** 规则组列表入参：GET /route/rule/list。 */
-export class ListRouteRuleDto extends PickType(Schema.TbSrmRouteRuleDto, ['routeKeyId'] as const) {}
 
 /** 绑定规则组明细：已有规则带主键，新增规则不带主键。排序由列表顺序决定，不接收单独的 sort。 */
 export class BindRouteRuleItemDto extends IntersectionType(
@@ -110,12 +78,6 @@ export class BindRouteRuleDto extends PickType(Schema.TbSrmRouteRuleDto, ['route
     @ValidateNested({ each: true })
     @Type(() => BindRouteRuleItemDto)
     list: BindRouteRuleItemDto[]
-}
-
-/** 规则组列表项：附带规则组的中文描述。 */
-export class RouteRuleResponseDto extends Schema.TbSrmRouteRuleDto {
-    @ApiProperty({ description: '规则组描述', example: '方向 属于 中国 且 类型 属于 MRKT' })
-    description: string
 }
 
 /* ------------------------------ 路由通道 ------------------------------ */
@@ -139,34 +101,16 @@ export class BindRouteChannelDto extends PickType(Schema.TbSrmRouteChannelDto, [
     channels: BindRouteChannelItemDto[]
 }
 
-/** 路由通道的通道摘要。 */
-export class RouteChannelOptionDto extends PickType(Schema.TbSrmChannelDto, ['keyId', 'alias', 'type', 'countryKeyId', 'status'] as const) {
-    @ApiProperty({ description: '启用的绑定端口数', example: 30 })
-    enablePortCount: number
-
-    @ApiProperty({ description: '方向信息', required: false, type: feign.SkylineCountrySummaryResponseDto })
-    countryKeyIdOptions?: feign.SkylineCountrySummaryResponseDto
-}
-
-/** 路由通道列表项：附带通道信息、是否可用和分流占比。 */
-export class RouteChannelResponseDto extends Schema.TbSrmRouteChannelDto {
-    @ApiProperty({ description: '通道信息', required: false, type: RouteChannelOptionDto })
-    channelOptions?: RouteChannelOptionDto
-
-    @ApiProperty({ description: '是否可用：路由通道启用、通道启用且有启用端口', example: true })
-    active: boolean
-
-    @ApiProperty({ description: '分流占比：同一路由内同方向、同类型、同优先级的可用通道之间按权重计算（百分比）', example: 60 })
-    ratio: number
-}
-
-/** 路由详情响应：GET /route/resolve；附带路由绑定的通道和短信应用。 */
+/** 路由详情响应：GET /route/resolve；附带绑定的通道、短信应用和规则组。 */
 export class RouteResolverResponseDto extends Schema.TbSrmRouteDto {
     @ApiProperty({ description: '绑定的通道列表', type: [Schema.TbSrmRouteChannel] })
     channels: Schema.TbSrmRouteChannel[]
 
     @ApiProperty({ description: '绑定的短信应用列表', type: [Schema.TbSrmRouteApp] })
     apps: Schema.TbSrmRouteApp[]
+
+    @ApiProperty({ description: '绑定的规则组列表', type: [Schema.TbSrmRouteRule] })
+    rules: Schema.TbSrmRouteRule[]
 }
 
 /* ------------------------------ 短信应用绑定 ------------------------------ */
@@ -183,28 +127,4 @@ export class BindRouteAppDto extends PickType(Schema.TbSrmRouteAppDto, ['routeKe
     @ValidateNested({ each: true })
     @Type(() => BindRouteAppItemDto)
     apps: BindRouteAppItemDto[]
-}
-
-/** 客户摘要。 */
-export class RouteUserOptionDto {
-    @ApiProperty({ description: '客户主键', example: 10241000 })
-    keyId: number
-
-    @ApiProperty({ description: '客户名称', required: false, example: '测试客户' })
-    name?: string
-
-    @ApiProperty({ description: '客户别名', required: false, example: 'RCK1024A7K9' })
-    alias?: string
-}
-
-/** 短信应用绑定列表项：附带短信应用、客户和路由信息。 */
-export class RouteAppColumnResponseDto extends IntersectionType(Schema.TbSrmRouteAppDto, feign.SkylineUserOptionsResponseDto) {
-    @ApiProperty({ description: '短信应用信息', required: false, type: feign.SmsAppSummaryResponseDto })
-    appKeyIdOptions?: feign.SmsAppSummaryResponseDto
-
-    @ApiProperty({ description: '客户信息', required: false, type: RouteUserOptionDto })
-    userKeyIdOptions?: RouteUserOptionDto
-
-    @ApiProperty({ description: '路由信息', required: false, type: RouteSelectResponseDto })
-    routeKeyIdOptions?: RouteSelectResponseDto
 }
