@@ -91,5 +91,4 @@ export class ChannelController {
     public async httpBaseSrmBindChannelPort(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: ChannelDto.BindChannelPortDto) {
         return this.channelService.httpBaseSrmBindChannelPort(principal, input)
     }
-
 }

@@ -213,11 +213,8 @@ test('更新端口绑定：新选端口写入设备快照，未选端口被删�
             { keyId: 11, port: 1, simbankKeyId: 100, activateStatus: 'active', countryKeyId: 1007 },
             { keyId: 12, port: 2, simbankKeyId: 101, activateStatus: 'active', countryKeyId: 1007 }
         ],
-        current: [
-            { keyId: 1, channelKeyId: 1, portKeyId: 11, status: 'enable' },
-            { keyId: 2, channelKeyId: 1, portKeyId: 12, status: 'enable' }
-        ],
-        bound: [{ keyId: 1, channelKeyId: 1, portKeyId: 11, status: 'enable' }],
+        current: [{ keyId: 1, channelKeyId: 1, portKeyId: 11, status: 'enable' }],
+        bound: [],
         inserted,
         deleted
     })

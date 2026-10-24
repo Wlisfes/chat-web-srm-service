@@ -112,8 +112,13 @@ test('短信应用只能绑定同类型路由', async () => {
         TbSrmRouteApp: []
     }
     const service = createService(createManager(tables))
-    await assert.rejects(() => service.httpBaseSrmBindRouteApp(principal, { routeKeyId: 1, apps: [{ appKeyId: 1001, status: 'enable' }] }), /类型不一致/)
-    assert.deepEqual(await service.httpBaseSrmBindRouteApp(principal, { routeKeyId: 2, apps: [{ appKeyId: 1001, status: 'enable' }] }), { count: 1 })
+    await assert.rejects(
+        () => service.httpBaseSrmBindRouteApp(principal, { routeKeyId: 1, apps: [{ appKeyId: 1001, status: 'enable' }] }),
+        /类型不一致/
+    )
+    assert.deepEqual(await service.httpBaseSrmBindRouteApp(principal, { routeKeyId: 2, apps: [{ appKeyId: 1001, status: 'enable' }] }), {
+        count: 1
+    })
     assert.equal(tables.TbSrmRouteApp[0].userKeyId, 10241000)
     assert.equal(tables.TbSrmRouteApp[0].status, 'enable')
     assert.equal(tables.TbSrmRoute[1].type, 'SOTP')
@@ -136,10 +141,9 @@ test('更新短信应用绑定：未提交的本路由应用会被移除', async
     })
     const service = createService(manager)
     apps[1002] = { keyId: 1002, userKeyId: 10241000, type: 'SOTP', appName: '通知' }
-    assert.deepEqual(
-        await service.httpBaseSrmBindRouteApp(principal, { routeKeyId: 2, apps: [{ appKeyId: 1001, status: 'disable' }] }),
-        { count: 1 }
-    )
+    assert.deepEqual(await service.httpBaseSrmBindRouteApp(principal, { routeKeyId: 2, apps: [{ appKeyId: 1001, status: 'disable' }] }), {
+        count: 1
+    })
     assert.deepEqual(deleted, [['TbSrmRouteApp', [2]]])
     assert.equal(tables.TbSrmRouteApp[0].status, 'disable')
     delete apps[1002]
@@ -196,7 +200,13 @@ test('更新路由通道绑定：未选通道被移除', async () => {
         }
     })
     const service = createService(manager)
-    assert.deepEqual(await service.httpBaseSrmBindRouteChannel(principal, { routeKeyId: 1, channels: [{ channelKeyId: 12, priority: 1, weight: 100, status: 'enable' }] }), { count: 1 })
+    assert.deepEqual(
+        await service.httpBaseSrmBindRouteChannel(principal, {
+            routeKeyId: 1,
+            channels: [{ channelKeyId: 12, priority: 1, weight: 100, status: 'enable' }]
+        }),
+        { count: 1 }
+    )
     assert.deepEqual(deleted, [['TbSrmRouteChannel', [1]]])
     assert.deepEqual(
         tables.TbSrmRouteChannel.map(item => item.channelKeyId),
@@ -237,11 +247,17 @@ function routeTables() {
     }
 }
 
-test('分流占比只在同路由、同方向、同类型、同优先级的可用通道之间计算', async () => {
+test('查询路由通道按路由主键索引绑定记录', async () => {
     const service = createService(createManager(routeTables()))
     const result = await service.routeUtilsService.findRouteChannels([3])
-    const ratio = Object.fromEntries(result.map(item => [item.keyId, item.ratio]))
-    assert.deepEqual(ratio, { 2: 60, 3: 40, 4: 100, 5: 100 })
+    assert.deepEqual(
+        result.links.map(item => item.keyId),
+        [5, 2, 3, 4]
+    )
+    assert.deepEqual(
+        result.linksOptions.get(3).map(item => item.channelKeyId),
+        [14, 11, 12, 13]
+    )
 })
 
 test('新增规则组校验字段与操作符、类型取值、号码段和方向', async () => {
@@ -268,7 +284,7 @@ test('路由详情返回路由本身和绑定的通道、短信应用', async ()
     const channels = [{ keyId: 9, routeKeyId: 1, channelKeyId: 11, priority: 1, weight: 100, status: 'enable', active: true, ratio: 100 }]
     service.routeUtilsService.findRouteChannels = async routeKeyIds => {
         assert.deepEqual(routeKeyIds, [1])
-        return channels
+        return { links: channels, linksOptions: new Map([[1, channels]]) }
     }
     service.skylineFeignClient = { httpBaseSkylineColumnCountryResolver: async () => [] }
     const detail = await service.httpBaseSrmRouteResolver({ keyId: 1 })

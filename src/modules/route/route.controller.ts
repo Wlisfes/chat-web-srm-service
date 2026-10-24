@@ -71,7 +71,6 @@ export class RouteController {
         return this.routeService.httpBaseSrmBindRouteChannel(principal, input)
     }
 
-
     @ApiServiceDecorator(Post('app/bind'), {
         operation: { summary: '短信应用绑定路由' },
         request: { source: 'body', type: RouteDto.BindRouteAppDto },

@@ -120,7 +120,12 @@ export class RouteRuleResponseDto extends Schema.TbSrmRouteRuleDto {
 /* ------------------------------ 路由通道 ------------------------------ */
 
 /** 绑定通道明细：通道、优先级、权重和绑定状态。 */
-export class BindRouteChannelItemDto extends PickType(Schema.TbSrmRouteChannelDto, ['channelKeyId', 'priority', 'weight', 'status'] as const) {}
+export class BindRouteChannelItemDto extends PickType(Schema.TbSrmRouteChannelDto, [
+    'channelKeyId',
+    'priority',
+    'weight',
+    'status'
+] as const) {}
 
 /** 更新路由通道绑定入参：POST /route/channel/bind；以本次提交的通道列表为准，包含通道、优先级、权重和绑定状态。路由可以挂不同方向和类型的通道。 */
 export class BindRouteChannelDto extends PickType(Schema.TbSrmRouteChannelDto, ['routeKeyId'] as const) {
@@ -178,7 +183,6 @@ export class BindRouteAppDto extends PickType(Schema.TbSrmRouteAppDto, ['routeKe
     @Type(() => BindRouteAppItemDto)
     apps: BindRouteAppItemDto[]
 }
-
 
 /** 客户摘要。 */
 export class RouteUserOptionDto {
