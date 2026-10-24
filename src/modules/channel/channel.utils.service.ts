@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
 import { InjectRepository, EntityManager, In, Repository } from '@wlisfes/chat-web-base-schema/database'
+import { type LinkOptions } from '@wlisfes/chat-web-base-schema/utils'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
+import { ConfigService } from '@nestjs/config'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 
@@ -21,6 +22,25 @@ export class ChannelUtilsService {
             throw new NotFoundException('通道不存在')
         }
         return channel
+    }
+
+    /** 获取必需的通道详情；传入事务管理器时使用该事务的仓库。 */
+    public async findChannels(channelKeyIds: number[]): Promise<LinkOptions<Schema.TbSrmChannel>> {
+        const linksOptions = new Map<number, Schema.TbSrmChannel>()
+        if (channelKeyIds.length === 0) {
+            return { links: [], linksOptions }
+        }
+        const links = await this.repository.manager.find(Schema.TbSrmChannel, {
+            where: { keyId: In(channelKeyIds) },
+            select: ['keyId', 'alias', 'name', 'status', 'type', 'sendInterval', 'maxRetry']
+        })
+        for (const channelKeyId of channelKeyIds) {
+            linksOptions.set(
+                channelKeyId,
+                links.find(item => item.keyId === channelKeyId)
+            )
+        }
+        return { links, linksOptions }
     }
 
     /**

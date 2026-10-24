@@ -22,9 +22,7 @@ import { FeignModule } from '@/feign/feign.module'
         NacosModule.forRoot(forRootNacosRuntimeOptions(process.env)),
         RedisModule.forRoot({ database: 4 }),
         DatabaseModule,
-        // 用户认证在网关完成一次；SRM 只校验网关签发的身份上下文签名。
         GatewayPrincipalModule,
-        // 只有声明 RequirePermissions 的接口才会调用 Auth 服务校验按钮权限。
         AuthorizationModule,
         HealthModule,
         UserModule,
