@@ -1,6 +1,5 @@
 import { Body, Get, Post, Query } from '@nestjs/common'
-import { CurrentPrincipal } from '@wlisfes/chat-web-base-schema/auth'
-import type { AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
+import { CurrentPrincipal, type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { ApiServiceDecorator, ApifoxController, SuccessResponseDataDto } from '@wlisfes/chat-web-base-schema/decorator'
 import { RouteService } from '@/modules/route/route.service'
 import * as Schema from '@wlisfes/chat-web-base-schema'
@@ -17,8 +16,6 @@ export class RouteController {
     public async httpBaseSrmRouteEnums() {
         return this.routeService.httpBaseSrmRouteEnums()
     }
-
-    /* ------------------------------ 路由 ------------------------------ */
 
     @ApiServiceDecorator(Post('create'), {
         operation: { summary: '新增路由' },
@@ -50,7 +47,7 @@ export class RouteController {
     @ApiServiceDecorator(Get('resolve'), {
         operation: { summary: '获取路由详情' },
         request: { source: 'query', type: RouteDto.RouteKeyDto },
-        response: { type: RouteDto.RouteResolverResponseDto, description: '路由详情（含绑定的通道列表）' }
+        response: { type: RouteDto.RouteResolverResponseDto, description: '路由详情（含绑定的通道和短信应用）' }
     })
     public async httpBaseSrmRouteResolver(@Query() input: RouteDto.RouteKeyDto) {
         return this.routeService.httpBaseSrmRouteResolver(input)
@@ -59,21 +56,29 @@ export class RouteController {
     @ApiServiceDecorator(Post('column'), {
         operation: { summary: '分页查询路由' },
         request: { source: 'body', type: RouteDto.ListRouteDto },
-        response: { type: RouteDto.RoutePageResponseDto, description: '路由分页数据' }
+        response: { type: RouteDto.RoutePageResponseDto, description: '路由分页数据（含绑定的通道和短信应用）' }
     })
     public async httpBaseSrmColumnRoute(@Body() input: RouteDto.ListRouteDto) {
         return this.routeService.httpBaseSrmColumnRoute(input)
     }
 
-    @ApiServiceDecorator(Get('select'), {
-        operation: { summary: '获取路由下拉选项' },
-        response: { type: RouteDto.RouteSelectResponseDto, isArray: true, description: '路由下拉选项' }
+    @ApiServiceDecorator(Post('channel/bind'), {
+        operation: { summary: '更新路由通道绑定' },
+        request: { source: 'body', type: RouteDto.BindRouteChannelDto },
+        response: { type: RouteDto.RouteCountResponseDto, description: '绑定的通道数量' }
     })
-    public async httpBaseSrmSelectRoute() {
-        return this.routeService.httpBaseSrmSelectRoute()
+    public async httpBaseSrmBindRouteChannel(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.BindRouteChannelDto) {
+        return this.routeService.httpBaseSrmBindRouteChannel(principal, input)
     }
 
-    /* ------------------------------ 规则组 ------------------------------ */
+    @ApiServiceDecorator(Post('app/bind'), {
+        operation: { summary: '短信应用绑定路由' },
+        request: { source: 'body', type: RouteDto.BindRouteAppDto },
+        response: { type: RouteDto.RouteCountResponseDto, description: '绑定数量' }
+    })
+    public async httpBaseSrmBindRouteApp(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.BindRouteAppDto) {
+        return this.routeService.httpBaseSrmBindRouteApp(principal, input)
+    }
 
     @ApiServiceDecorator(Post('rule/create'), {
         operation: { summary: '新增规则组' },
@@ -109,86 +114,5 @@ export class RouteController {
     })
     public async httpBaseSrmListRouteRule(@Query() input: RouteDto.ListRouteRuleDto) {
         return this.routeService.httpBaseSrmListRouteRule(input)
-    }
-
-    /* ------------------------------ 路由通道 ------------------------------ */
-
-    @ApiServiceDecorator(Post('channel/bind'), {
-        operation: { summary: '更新路由通道绑定' },
-        request: { source: 'body', type: RouteDto.BindRouteChannelDto },
-        response: { type: RouteDto.RouteCountResponseDto, description: '绑定的通道数量' }
-    })
-    public async httpBaseSrmBindRouteChannel(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.BindRouteChannelDto) {
-        return this.routeService.httpBaseSrmBindRouteChannel(principal, input)
-    }
-
-    @ApiServiceDecorator(Post('channel/update'), {
-        operation: { summary: '编辑路由通道优先级、权重和状态' },
-        request: { source: 'body', type: RouteDto.UpdateRouteChannelDto },
-        response: { type: Schema.TbSrmRouteChannelDto, description: '编辑后的路由通道' }
-    })
-    public async httpBaseSrmUpdateRouteChannel(
-        @CurrentPrincipal() principal: AuthPrincipal,
-        @Body() input: RouteDto.UpdateRouteChannelDto
-    ) {
-        return this.routeService.httpBaseSrmUpdateRouteChannel(principal, input)
-    }
-
-    @ApiServiceDecorator(Post('channel/delete'), {
-        operation: { summary: '从路由移除通道' },
-        request: { source: 'body', type: RouteDto.RouteChannelKeyDto },
-        response: { type: SuccessResponseDataDto, description: '删除结果' }
-    })
-    public async httpBaseSrmDeleteRouteChannel(@Body() input: RouteDto.RouteChannelKeyDto) {
-        return this.routeService.httpBaseSrmDeleteRouteChannel(input)
-    }
-
-    @ApiServiceDecorator(Get('channel/list'), {
-        operation: { summary: '查询路由下的通道' },
-        request: { source: 'query', type: RouteDto.ListRouteChannelDto },
-        response: { type: RouteDto.RouteChannelResponseDto, isArray: true, description: '路由通道列表' }
-    })
-    public async httpBaseSrmListRouteChannel(@Query() input: RouteDto.ListRouteChannelDto) {
-        return this.routeService.httpBaseSrmListRouteChannel(input)
-    }
-
-    /* ------------------------------ 短信应用绑定 ------------------------------ */
-
-    @ApiServiceDecorator(Post('app/bind'), {
-        operation: { summary: '短信应用绑定路由' },
-        request: { source: 'body', type: RouteDto.BindRouteAppDto },
-        response: { type: RouteDto.RouteCountResponseDto, description: '绑定数量' }
-    })
-    public async httpBaseSrmBindRouteApp(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.BindRouteAppDto) {
-        return this.routeService.httpBaseSrmBindRouteApp(principal, input)
-    }
-
-    @ApiServiceDecorator(Post('app/unbind'), {
-        operation: { summary: '短信应用解绑路由' },
-        request: { source: 'body', type: RouteDto.UnbindRouteAppDto },
-        response: { type: RouteDto.RouteCountResponseDto, description: '解绑数量' }
-    })
-    public async httpBaseSrmUnbindRouteApp(@Body() input: RouteDto.UnbindRouteAppDto) {
-        return this.routeService.httpBaseSrmUnbindRouteApp(input)
-    }
-
-    @ApiServiceDecorator(Post('app/column'), {
-        operation: { summary: '分页查询短信应用路由绑定' },
-        request: { source: 'body', type: RouteDto.ListRouteAppDto },
-        response: { type: RouteDto.RouteAppPageResponseDto, description: '短信应用绑定分页数据' }
-    })
-    public async httpBaseSrmColumnRouteApp(@Body() input: RouteDto.ListRouteAppDto) {
-        return this.routeService.httpBaseSrmColumnRouteApp(input)
-    }
-
-    /* ------------------------------ 选路预览 ------------------------------ */
-
-    @ApiServiceDecorator(Post('preview'), {
-        operation: { summary: '选路预览：按短信应用、方向和类型模拟选择通道' },
-        request: { source: 'body', type: RouteDto.RoutePreviewDto },
-        response: { type: RouteDto.RoutePreviewResponseDto, description: '选路结果' }
-    })
-    public async httpBaseSrmRoutePreview(@Body() input: RouteDto.RoutePreviewDto) {
-        return this.routeService.httpBaseSrmRoutePreview(input)
     }
 }
