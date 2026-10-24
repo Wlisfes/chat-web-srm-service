@@ -120,14 +120,16 @@ export class RouteService {
             qb.skip((page - 1) * size).take(size)
             return await qb.getManyAndCount().then(async ([list, total]) => {
                 const routeKeyIds = list.map(item => item.keyId)
-                const [channel, app] = await Promise.all([
+                const [channel, app, rule] = await Promise.all([
                     this.routeUtilsService.findRouteChannels(routeKeyIds),
-                    this.routeUtilsService.findRouteApps(routeKeyIds)
+                    this.routeUtilsService.findRouteApps(routeKeyIds),
+                    this.routeUtilsService.findRouteRules(routeKeyIds)
                 ])
                 const items = list.map(item => ({
                     ...item,
                     channels: channel.linksOptions.get(item.keyId) ?? [],
-                    apps: app.linksOptions.get(item.keyId) ?? []
+                    apps: app.linksOptions.get(item.keyId) ?? [],
+                    rules: rule.linksOptions.get(item.keyId) ?? []
                 }))
                 return fetchResolver({ page, size, total, list: items })
             })
