@@ -56,7 +56,7 @@ export class RouteController {
     @ApiServiceDecorator(Post('column'), {
         operation: { summary: '分页查询路由' },
         request: { source: 'body', type: RouteDto.ListRouteDto },
-        response: { type: RouteDto.RoutePageResponseDto, description: '路由分页数据' }
+        response: { type: RouteDto.RoutePageResponseDto, description: '路由分页数据（含绑定的通道和短信应用）' }
     })
     public async httpBaseSrmColumnRoute(@Body() input: RouteDto.ListRouteDto) {
         return this.routeService.httpBaseSrmColumnRoute(input)

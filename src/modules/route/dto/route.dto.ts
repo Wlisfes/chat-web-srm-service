@@ -1,8 +1,8 @@
 import { ApiProperty, IntersectionType, PartialType, PickType } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsInt, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator'
+import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsInt, Min, ValidateNested } from 'class-validator'
 import { EnumsResponseDto, PageResponseDataDto } from '@wlisfes/chat-web-base-schema/decorator'
-import { PageDto } from '@wlisfes/chat-web-base-schema/utils'
+import { PageDto, VagueDto } from '@wlisfes/chat-web-base-schema/utils'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 
@@ -41,14 +41,12 @@ export class UpdateRouteDto extends IntersectionType(
 /** 路由主键入参：GET /route/resolve、POST /route/delete。 */
 export class RouteKeyDto extends PickType(Schema.TbSrmRouteDto, ['keyId'] as const) {}
 
-/** 路由分页入参：POST /route/column；name 模糊匹配路由名称或别名。 */
-export class ListRouteDto extends IntersectionType(PageDto, PartialType(PickType(Schema.TbSrmRouteDto, ['type', 'status'] as const))) {
-    @ApiProperty({ description: '关键词：路由名称或别名', required: false, example: '标准' })
-    @IsOptional()
-    @IsString({ message: '关键词必须是字符串' })
-    @MaxLength(64, { message: '关键词长度不能超过64位' })
-    name?: string
-}
+/** 路由分页入参：POST /route/column；vague 模糊匹配路由名称或别名。 */
+export class ListRouteDto extends IntersectionType(
+    PageDto,
+    VagueDto,
+    PartialType(PickType(Schema.TbSrmRouteDto, ['type', 'status'] as const))
+) {}
 
 /** 路由覆盖的 方向 + 类型。 */
 export class RouteCoverageDto {
@@ -68,31 +66,16 @@ export class RouteCoverageDto {
     activeChannelCount: number
 }
 
-/** 路由列表项：附带规则摘要、通道数、可用通道数、覆盖的方向和类型、绑定短信应用数。 */
-export class RouteColumnResponseDto extends IntersectionType(Schema.TbSrmRouteDto, feign.SkylineUserOptionsResponseDto) {
-    @ApiProperty({ description: '启用的规则组数：为 0 时路由不接收任何短信', example: 2 })
-    ruleCount: number
+/** 路由列表项：路由信息，以及绑定的通道和短信应用。 */
+export class RouteColumnResponseDto {
+    @ApiProperty({ description: '路由信息', type: Schema.TbSrmRouteDto })
+    item: Schema.TbSrmRoute
 
-    @ApiProperty({
-        description: '规则摘要：启用的规则组之间是“或”，组内条件之间是“且”',
-        example: '(方向 属于 中国 且 类型 属于 MRKT) 或 (号码段 以 85291 开头)'
-    })
-    ruleSummary: string
+    @ApiProperty({ description: '绑定的通道列表', type: [Schema.TbSrmRouteChannel] })
+    channels: Schema.TbSrmRouteChannel[]
 
-    @ApiProperty({ description: '通道数', example: 6 })
-    channelCount: number
-
-    @ApiProperty({ description: '可用通道数：路由通道启用、通道启用且有启用端口', example: 5 })
-    activeChannelCount: number
-
-    @ApiProperty({ description: '覆盖的方向和类型，由路由下的通道决定', type: [RouteCoverageDto] })
-    coverages: RouteCoverageDto[]
-
-    @ApiProperty({ description: '绑定的短信应用数', example: 30 })
-    appCount: number
-
-    @ApiProperty({ description: '归属人信息', required: false, type: feign.SkylineUserOptionResponseDto })
-    ownerUserUidOptions?: feign.SkylineUserOptionResponseDto
+    @ApiProperty({ description: '绑定的短信应用列表', type: [Schema.TbSrmRouteApp] })
+    apps: Schema.TbSrmRouteApp[]
 }
 
 /** 路由分页响应：POST /route/column。 */
@@ -176,11 +159,11 @@ export class RouteChannelResponseDto extends Schema.TbSrmRouteChannelDto {
 
 /** 路由详情响应：GET /route/resolve；附带路由绑定的通道和短信应用。 */
 export class RouteResolverResponseDto extends Schema.TbSrmRouteDto {
-    @ApiProperty({ description: '绑定的通道列表（含通道信息、可用状态和分流占比）', type: [RouteChannelResponseDto] })
-    channels: RouteChannelResponseDto[]
+    @ApiProperty({ description: '绑定的通道列表', type: [Schema.TbSrmRouteChannel] })
+    channels: Schema.TbSrmRouteChannel[]
 
-    @ApiProperty({ description: '绑定的短信应用列表（含应用和客户信息）', type: () => [RouteAppColumnResponseDto] })
-    apps: RouteAppColumnResponseDto[]
+    @ApiProperty({ description: '绑定的短信应用列表', type: [Schema.TbSrmRouteApp] })
+    apps: Schema.TbSrmRouteApp[]
 }
 
 /* ------------------------------ 短信应用绑定 ------------------------------ */

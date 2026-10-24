@@ -7,6 +7,12 @@ import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 import * as RouteDto from '@/modules/route/dto/route.dto'
 
+/** 按路由主键索引的绑定记录。 */
+export type RouteLinkIndex<T> = {
+    links: T[]
+    linksOptions: Map<number, T[]>
+}
+
 @Injectable()
 export class RouteUtilsService {
     constructor(
@@ -77,47 +83,44 @@ export class RouteUtilsService {
             .join(' 且 ')
     }
 
-    /** 查询路由下的通道：附带通道信息、可用状态和分流占比（同路由、同方向、同类型、同优先级的可用通道之间计算）。 */
-    public async findRouteChannels(routeKeyIds: number[]): Promise<RouteDto.RouteChannelResponseDto[]> {
-        if (routeKeyIds.length === 0) return []
-        const manager = this.repository.manager
-        const links = await manager.find(Schema.TbSrmRouteChannel, {
+    /** 查询路由下绑定的应用 */
+    public async findRouteApps(routeKeyIds: number[]): Promise<RouteLinkIndex<Schema.TbSrmRouteApp>> {
+        const linksOptions = new Map<number, Array<Schema.TbSrmRouteApp>>()
+        if (routeKeyIds.length === 0) {
+            return { links: [], linksOptions }
+        }
+        const links = await this.repository.manager.find(Schema.TbSrmRouteApp, {
             where: { routeKeyId: In(routeKeyIds) },
-            order: { priority: 'ASC', weight: 'DESC', keyId: 'ASC' }
+            order: { keyId: 'ASC' },
+            select: ['appKeyId', 'keyId', 'routeKeyId', 'userKeyId', 'status']
         })
-        if (links.length === 0) return []
-        const channelKeyIds = [...new Set(links.map(item => item.channelKeyId))]
-        const [channels, ports] = await Promise.all([
-            manager.find(Schema.TbSrmChannel, {
-                select: { keyId: true, alias: true, type: true, countryKeyId: true, status: true },
-                where: { keyId: In(channelKeyIds) }
-            }),
-            manager.find(Schema.TbSrmChannelPort, {
-                select: { channelKeyId: true },
-                where: { channelKeyId: In(channelKeyIds), status: Schema.TbSrmChannelPortStatus.ENABLE }
-            })
-        ])
-        const rows = links.map(link => {
-            const channel = channels.find(item => item.keyId === link.channelKeyId)
-            const enablePortCount = ports.filter(port => port.channelKeyId === link.channelKeyId).length
-            return {
-                ...link,
-                channelOptions: channel ? { ...channel, enablePortCount } : undefined,
-                active:
-                    link.status === Schema.TbSrmRouteChannelStatus.ENABLE &&
-                    channel?.status === Schema.TbSrmChannelStatus.ENABLE &&
-                    enablePortCount > 0
-            }
+        for (const routeKeyId of routeKeyIds) {
+            linksOptions.set(
+                routeKeyId,
+                links.filter(item => item.routeKeyId === routeKeyId)
+            )
+        }
+        return { links, linksOptions }
+    }
+
+    /** 查询路由下的通道：附带通道信息、可用状态和分流占比（同路由、同方向、同类型、同优先级的可用通道之间计算）。 */
+    public async findRouteChannels(routeKeyIds: number[]): Promise<RouteLinkIndex<Schema.TbSrmRouteChannel>> {
+        const linksOptions = new Map<number, Array<Schema.TbSrmRouteChannel>>()
+        if (routeKeyIds.length === 0) {
+            return { links: [], linksOptions }
+        }
+        const links = await this.repository.manager.find(Schema.TbSrmRouteChannel, {
+            where: { routeKeyId: In(routeKeyIds) },
+            order: { priority: 'ASC', weight: 'DESC', keyId: 'ASC' },
+            select: ['keyId', 'routeKeyId', 'channelKeyId', 'priority', 'weight', 'status']
         })
-        const sameGroup = (a: (typeof rows)[number], b: (typeof rows)[number]) =>
-            a.routeKeyId === b.routeKeyId &&
-            a.priority === b.priority &&
-            a.channelOptions?.countryKeyId === b.channelOptions?.countryKeyId &&
-            a.channelOptions?.type === b.channelOptions?.type
-        return rows.map(row => {
-            const sum = rows.filter(item => item.active && sameGroup(item, row)).reduce((total, item) => total + item.weight, 0)
-            return { ...row, ratio: row.active && sum > 0 ? Math.round((row.weight / sum) * 10000) / 100 : 0 }
-        })
+        for (const routeKeyId of routeKeyIds) {
+            linksOptions.set(
+                routeKeyId,
+                links.filter(item => item.routeKeyId === routeKeyId)
+            )
+        }
+        return { links, linksOptions }
     }
 
     /** 按 方向 + 类型 汇总路由覆盖范围。 */

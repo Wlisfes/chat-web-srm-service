@@ -89,71 +89,50 @@ export class RouteService {
 
     /** 路由详情：附带绑定的通道和短信应用。 */
     public async httpBaseSrmRouteResolver(input: RouteDto.RouteKeyDto): Promise<RouteDto.RouteResolverResponseDto> {
-        const route = await this.routeUtilsService.findRouteRequired(this.repository.manager, input.keyId)
-        const [channels, apps] = await Promise.all([
-            this.routeUtilsService.findRouteChannels([route.keyId]),
-            this.repository.manager
-                .find(Schema.TbSrmRouteApp, { where: { routeKeyId: route.keyId }, order: { keyId: 'ASC' } })
-                .then(list => this.attachRouteAppOptions(list.map(item => ({ ...item }))))
-        ])
-        return { ...route, channels, apps }
+        return await this.routeUtilsService.findRouteRequired(this.repository.manager, input.keyId).then(async route => {
+            const [channel, app] = await Promise.all([
+                this.routeUtilsService.findRouteChannels([route.keyId]),
+                this.routeUtilsService.findRouteApps([route.keyId])
+            ])
+            return {
+                ...route,
+                channels: channel.linksOptions.get(route.keyId) ?? [],
+                apps: app.linksOptions.get(route.keyId) ?? []
+            }
+        })
     }
 
-    /** 路由分页：按短信类型和优先级排序，附带规则摘要、通道数、覆盖的方向和类型、绑定短信应用数。 */
+    /** 路由分页：按短信类型和优先级排序，附带绑定的通道和短信应用。 */
     public async httpBaseSrmColumnRoute(input: RouteDto.ListRouteDto): Promise<PageResult<RouteDto.RouteColumnResponseDto>> {
-        const { page, size } = fetchUntiePagination(input)
+        const { page, size, vague } = fetchUntiePagination(input)
         return this.database.builder(this.repository, async qb => {
-            const keyword = input.name?.trim()
-            if (keyword) qb.andWhere('(t.name LIKE :keyword OR t.alias LIKE :keyword)', { keyword: `%${keyword}%` })
-            if (isNotEmpty(input.status)) qb.andWhere('t.status = :status', { status: input.status })
-            if (isNotEmpty(input.type)) qb.andWhere('t.type = :type', { type: input.type })
-            qb.orderBy('t.type', 'ASC').addOrderBy('t.priority', 'ASC').addOrderBy('t.createTime', 'ASC').addOrderBy('t.keyId', 'ASC')
+            if (isNotEmpty(vague)) {
+                qb.andWhere('(t.name LIKE :vague OR t.alias LIKE :vague)', { vague: `%${vague}%` })
+            }
+            if (isNotEmpty(input.status)) {
+                qb.andWhere('t.status = :status', { status: input.status })
+            }
+            if (isNotEmpty(input.type)) {
+                qb.andWhere('t.type = :type', { type: input.type })
+            }
+            qb.orderBy('t.type', 'ASC')
+            qb.addOrderBy('t.priority', 'ASC')
+            qb.addOrderBy('t.createTime', 'ASC')
+            qb.addOrderBy('t.keyId', 'ASC')
             qb.skip((page - 1) * size).take(size)
-            const [list, total] = await qb.getManyAndCount()
-            const keyIds = list.map(item => item.keyId)
-            const [channels, rules, apps] = keyIds.length
-                ? await Promise.all([
-                      this.routeUtilsService.findRouteChannels(keyIds),
-                      this.repository.manager.find(Schema.TbSrmRouteRule, {
-                          where: { routeKeyId: In(keyIds), status: Schema.TbSrmRouteRuleStatus.ENABLE },
-                          order: { sort: 'ASC', keyId: 'ASC' }
-                      }),
-                      this.repository.manager.find(Schema.TbSrmRouteApp, {
-                          select: { routeKeyId: true },
-                          where: { routeKeyId: In(keyIds) }
-                      })
-                  ])
-                : [[], [], []]
-            const countryNames = await this.routeUtilsService.findCountryNames(
-                rules.flatMap(rule => this.routeUtilsService.countryKeyIdsOf(rule))
-            )
-            const rows = list.map(item => {
-                const own = channels.filter(channel => channel.routeKeyId === item.keyId)
-                const ownRules = rules.filter(rule => rule.routeKeyId === item.keyId)
-                return {
-                    ...item,
-                    ruleCount: ownRules.length,
-                    ruleSummary: ownRules.map(rule => `(${this.routeUtilsService.describeRule(rule, countryNames)})`).join(' 或 '),
-                    channelCount: own.length,
-                    activeChannelCount: own.filter(channel => channel.active).length,
-                    coverages: this.routeUtilsService.groupCoverages(own),
-                    appCount: apps.filter(app => app.routeKeyId === item.keyId).length
-                }
+            return await qb.getManyAndCount().then(async ([list, total]) => {
+                const routeKeyIds = list.map(item => item.keyId)
+                const [channel, app] = await Promise.all([
+                    this.routeUtilsService.findRouteChannels(routeKeyIds),
+                    this.routeUtilsService.findRouteApps(routeKeyIds)
+                ])
+                const items = list.map(item => ({
+                    item,
+                    channels: channel.linksOptions.get(item.keyId) ?? [],
+                    apps: app.linksOptions.get(item.keyId) ?? []
+                }))
+                return fetchResolver({ page, size, total, list: items })
             })
-            await Promise.all([
-                feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, rows, [
-                    'ownerUserUid',
-                    'createBy',
-                    'modifyBy'
-                ]),
-                feign.fetchAppendSkylineCountryOptions(
-                    this.skylineFeignClient,
-                    this.configService,
-                    rows.flatMap(row => row.coverages),
-                    ['countryKeyId']
-                )
-            ])
-            return fetchResolver({ page, size, total, list: rows })
         })
     }
 
