@@ -25,10 +25,10 @@ export class RouteCountResponseDto {
 
 /* ------------------------------ 路由 ------------------------------ */
 
-/** 新增路由入参：POST /route/create；别名按 LSK + 归属人工号 + 路由类型 + 分段序号自动生成，类型创建后不可修改。 */
+/** 新增路由入参：POST /route/create；别名按 LSK + 主键 + 路由类型自动生成，类型创建后不可修改。 */
 export class CreateRouteDto extends IntersectionType(
     PickType(Schema.TbSrmRouteDto, ['name', 'type'] as const),
-    PartialType(PickType(Schema.TbSrmRouteDto, ['priority', 'status', 'ownerUserUid', 'remark'] as const))
+    PartialType(PickType(Schema.TbSrmRouteDto, ['priority', 'status', 'remark'] as const))
 ) {}
 
 /** 编辑路由入参：POST /route/update；只能修改名称、优先级、状态和备注。 */

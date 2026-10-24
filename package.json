@@ -1,6 +1,6 @@
 {
     "name": "chat-web-srm-service",
-    "version": "1.0.9",
+    "version": "1.0.10",
     "description": "",
     "author": "Wlisfes",
     "private": true,
@@ -26,7 +26,7 @@
         "@nestjs/platform-express": "^11.0.1",
         "@nestjs/swagger": "11.4.6",
         "@nestjs/typeorm": "11.0.3",
-        "@wlisfes/chat-web-base-schema": "1.7.7",
+        "@wlisfes/chat-web-base-schema": "1.7.8",
         "china-division": "2.7.0",
         "class-transformer": "0.5.1",
         "class-validator": "0.15.1",

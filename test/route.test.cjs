@@ -46,7 +46,10 @@ function createManager(tables, overrides = {}) {
         existsBy: async (entity, where) => (tables[entity.name] ?? []).some(row => matches(row, where)),
         create: (_entity, value) => value,
         merge: (_entity, target, value) => Object.assign(target, value),
-        save: async value => value,
+        save: async value => {
+            if (value && value.keyId == null) value.keyId = 1002001
+            return value
+        },
         insert: async (entity, value) => (tables[entity.name] ??= []).push(...[value].flat()),
         update: async (entity, where, value) =>
             (tables[entity.name] ?? []).filter(row => matches(row, where)).forEach(row => Object.assign(row, value)),
@@ -75,7 +78,7 @@ test('新增路由按传入类型保存，优先级默认 1；编辑不能修改
     const route = await service.httpBaseSrmCreateRoute(principal, { name: ' 大客户线路 ', type: 'SOTP' })
     assert.deepEqual(
         [route.name, route.type, route.alias, route.priority, route.status],
-        ['大客户线路', 'SOTP', 'LSK1024-SOTP-A001', 1, 'enable']
+        ['大客户线路', 'SOTP', 'LSK1002001-SOTP', 1, 'enable']
     )
     tables.TbSrmRoute.push({ ...route, keyId: 1 })
     const updated = await service.httpBaseSrmUpdateRoute(principal, {
@@ -88,7 +91,7 @@ test('新增路由按传入类型保存，优先级默认 1；编辑不能修改
     assert.deepEqual([updated.type, updated.priority], ['SOTP', 3])
 })
 
-test('路由别名按工号和类型自增，有绑定应用的路由不能删除', async () => {
+test('路由别名按主键和类型生成，有绑定应用的路由不能删除', async () => {
     const tables = {
         TbSrmRoute: [
             { keyId: 1, name: '通用', alias: 'LSK1024-SOTP-A001', type: 'SOTP', status: 'enable' },
@@ -98,7 +101,7 @@ test('路由别名按工号和类型自增，有绑定应用的路由不能删�
     }
     const service = createService(createManager(tables))
     const created = await service.httpBaseSrmCreateRoute(principal, { name: 'B', type: 'SOTP', alias: 'RT-GENERAL' })
-    assert.equal(created.alias, 'LSK1024-SOTP-A002')
+    assert.equal(created.alias, 'LSK1002001-SOTP')
     await assert.rejects(() => service.httpBaseSrmDeleteRoute({ keyId: 2 }), /仍有短信应用绑定/)
     assert.deepEqual(await service.httpBaseSrmDeleteRoute({ keyId: 1 }), { success: true })
 })
@@ -416,7 +419,7 @@ test('更新路由规则绑定：空列表清空规则组，路由不存在时�
 })
 
 test('路由详情返回路由本身和绑定的通道、短信应用', async () => {
-    const route = { keyId: 1, name: '通用营销', alias: 'LSK1233-MRKT-A001', type: 'MRKT', priority: 1, status: 'enable' }
+    const route = { keyId: 1, name: '通用营销', alias: 'LSK1-MRKT', type: 'MRKT', priority: 1, status: 'enable' }
     const service = createService(createManager({ TbSrmRoute: [route] }))
     const channels = [{ keyId: 9, routeKeyId: 1, channelKeyId: 11, priority: 1, weight: 100, status: 'enable', active: true, ratio: 100 }]
     service.routeUtilsService.findRouteChannels = async routeKeyIds => {
@@ -424,7 +427,7 @@ test('路由详情返回路由本身和绑定的通道、短信应用', async ()
         return { links: channels, linksOptions: new Map([[1, channels]]) }
     }
     const detail = await service.httpBaseSrmRouteResolver({ keyId: 1 })
-    assert.equal(detail.alias, 'LSK1233-MRKT-A001')
+    assert.equal(detail.alias, 'LSK1-MRKT')
     assert.deepEqual(detail.channels, channels)
     assert.deepEqual(detail.apps, [])
 })
