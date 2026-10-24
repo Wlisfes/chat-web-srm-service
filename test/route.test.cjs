@@ -238,7 +238,8 @@ function routeTables() {
 }
 
 test('分流占比只在同路由、同方向、同类型、同优先级的可用通道之间计算', async () => {
-    const result = await createService(createManager(routeTables())).httpBaseSrmListRouteChannel({ routeKeyId: 3 })
+    const service = createService(createManager(routeTables()))
+    const result = await service.routeUtilsService.findRouteChannels([3])
     const ratio = Object.fromEntries(result.map(item => [item.keyId, item.ratio]))
     assert.deepEqual(ratio, { 2: 60, 3: 40, 4: 100, 5: 100 })
 })

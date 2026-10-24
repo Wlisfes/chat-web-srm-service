@@ -153,9 +153,6 @@ export class BindRouteChannelDto extends PickType(Schema.TbSrmRouteChannelDto, [
     channels: BindRouteChannelItemDto[]
 }
 
-/** 路由通道列表入参：GET /route/channel/list。 */
-export class ListRouteChannelDto extends PickType(Schema.TbSrmRouteChannelDto, ['routeKeyId'] as const) {}
-
 /** 路由通道的通道摘要。 */
 export class RouteChannelOptionDto extends PickType(Schema.TbSrmChannelDto, ['keyId', 'alias', 'type', 'countryKeyId', 'status'] as const) {
     @ApiProperty({ description: '启用的绑定端口数', example: 30 })

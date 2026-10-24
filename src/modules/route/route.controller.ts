@@ -62,6 +62,24 @@ export class RouteController {
         return this.routeService.httpBaseSrmColumnRoute(input)
     }
 
+    @ApiServiceDecorator(Post('channel/bind'), {
+        operation: { summary: '更新路由通道绑定' },
+        request: { source: 'body', type: RouteDto.BindRouteChannelDto },
+        response: { type: RouteDto.RouteCountResponseDto, description: '绑定的通道数量' }
+    })
+    public async httpBaseSrmBindRouteChannel(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.BindRouteChannelDto) {
+        return this.routeService.httpBaseSrmBindRouteChannel(principal, input)
+    }
+
+
+    @ApiServiceDecorator(Post('app/bind'), {
+        operation: { summary: '短信应用绑定路由' },
+        request: { source: 'body', type: RouteDto.BindRouteAppDto },
+        response: { type: RouteDto.RouteCountResponseDto, description: '绑定数量' }
+    })
+    public async httpBaseSrmBindRouteApp(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.BindRouteAppDto) {
+        return this.routeService.httpBaseSrmBindRouteApp(principal, input)
+    }
 
     @ApiServiceDecorator(Post('rule/create'), {
         operation: { summary: '新增规则组' },
@@ -97,34 +115,5 @@ export class RouteController {
     })
     public async httpBaseSrmListRouteRule(@Query() input: RouteDto.ListRouteRuleDto) {
         return this.routeService.httpBaseSrmListRouteRule(input)
-    }
-
-    /* ------------------------------ 路由通道 ------------------------------ */
-
-    @ApiServiceDecorator(Post('channel/bind'), {
-        operation: { summary: '更新路由通道绑定' },
-        request: { source: 'body', type: RouteDto.BindRouteChannelDto },
-        response: { type: RouteDto.RouteCountResponseDto, description: '绑定的通道数量' }
-    })
-    public async httpBaseSrmBindRouteChannel(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.BindRouteChannelDto) {
-        return this.routeService.httpBaseSrmBindRouteChannel(principal, input)
-    }
-
-    @ApiServiceDecorator(Get('channel/list'), {
-        operation: { summary: '查询路由下的通道' },
-        request: { source: 'query', type: RouteDto.ListRouteChannelDto },
-        response: { type: RouteDto.RouteChannelResponseDto, isArray: true, description: '路由通道列表' }
-    })
-    public async httpBaseSrmListRouteChannel(@Query() input: RouteDto.ListRouteChannelDto) {
-        return this.routeService.httpBaseSrmListRouteChannel(input)
-    }
-
-    @ApiServiceDecorator(Post('app/bind'), {
-        operation: { summary: '短信应用绑定路由' },
-        request: { source: 'body', type: RouteDto.BindRouteAppDto },
-        response: { type: RouteDto.RouteCountResponseDto, description: '绑定数量' }
-    })
-    public async httpBaseSrmBindRouteApp(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.BindRouteAppDto) {
-        return this.routeService.httpBaseSrmBindRouteApp(principal, input)
     }
 }

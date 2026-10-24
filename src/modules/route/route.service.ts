@@ -1,12 +1,12 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
-import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
-import { DataBaseService, EntityManager, In, InjectRepository, Repository } from '@wlisfes/chat-web-base-schema/database'
 import { PageResult, fetchResolver, fetchUntiePagination, isNotEmpty } from '@wlisfes/chat-web-base-schema/utils'
+import { DataBaseService, In, InjectRepository, Repository } from '@wlisfes/chat-web-base-schema/database'
+import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
+import { RouteUtilsService } from '@/modules/route/route.utils.service'
+import { ConfigService } from '@nestjs/config'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 import * as RouteDto from '@/modules/route/dto/route.dto'
-import { RouteUtilsService } from '@/modules/route/route.utils.service'
 
 @Injectable()
 export class RouteService {
@@ -157,7 +157,6 @@ export class RouteService {
         })
     }
 
-
     /* ------------------------------ 规则组 ------------------------------ */
 
     /** 新增规则组：校验条件字段、操作符和取值。 */
@@ -270,24 +269,6 @@ export class RouteService {
             }
             return { count: items.length }
         })
-    }
-
-    /** 路由通道列表：按方向、类型、优先级排序，附带通道信息、是否可用和分流占比。 */
-    public async httpBaseSrmListRouteChannel(input: RouteDto.ListRouteChannelDto): Promise<RouteDto.RouteChannelResponseDto[]> {
-        const rows = await this.routeUtilsService.findRouteChannels([input.routeKeyId])
-        await feign.fetchAppendSkylineCountryOptions(
-            this.skylineFeignClient,
-            this.configService,
-            rows.map(row => row.channelOptions).filter((item): item is RouteDto.RouteChannelOptionDto => !!item),
-            ['countryKeyId']
-        )
-        return rows.sort(
-            (a, b) =>
-                (a.channelOptions?.countryKeyId ?? 0) - (b.channelOptions?.countryKeyId ?? 0) ||
-                String(a.channelOptions?.type).localeCompare(String(b.channelOptions?.type)) ||
-                a.priority - b.priority ||
-                b.weight - a.weight
-        )
     }
 
     /* ------------------------------ 短信应用绑定 ------------------------------ */
