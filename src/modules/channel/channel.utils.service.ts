@@ -17,7 +17,9 @@ export class ChannelUtilsService {
     /** 获取必需的通道详情；传入事务管理器时使用该事务的仓库。 */
     public async findChannelRequired(manager: EntityManager, keyId: number): Promise<Schema.TbSrmChannel> {
         const channel = await manager.findOneBy(Schema.TbSrmChannel, { keyId })
-        if (!channel) throw new NotFoundException('通道不存在')
+        if (!channel) {
+            throw new NotFoundException('通道不存在')
+        }
         return channel
     }
 
@@ -35,15 +37,21 @@ export class ChannelUtilsService {
             .getMany()
         const max = rows.reduce((value, row) => Math.max(value, this.parseAliasSequence(row.alias, prefix)), 0)
         const alias = `${prefix}${this.formatAliasSequence(max + 1)}`
-        if (alias.length > 32) throw new BadRequestException('通道别名超过32位')
+        if (alias.length > 32) {
+            throw new BadRequestException('通道别名超过32位')
+        }
         return alias
     }
 
     /** 取归属人工号：当前登录人直接用工号，其他人通过 Skyline 账号还原。 */
     public async resolveOwnerNumber(principal: AuthPrincipal, ownerUserUid: string): Promise<string> {
-        if (ownerUserUid === principal.uid) return this.requireEmployeeNumber(principal.number, '当前登录账号')
+        if (ownerUserUid === principal.uid) {
+            return this.requireEmployeeNumber(principal.number, '当前登录账号')
+        }
         const [user] = await this.skylineFeignClient.httpBaseSkylineColumnUserResolver(this.authorization(), { uids: [ownerUserUid] })
-        if (!user) throw new BadRequestException('归属人不存在')
+        if (!user) {
+            throw new BadRequestException('归属人不存在')
+        }
         return this.requireEmployeeNumber(user.number, '归属人')
     }
 
@@ -51,7 +59,9 @@ export class ChannelUtilsService {
     public parseAliasSequence(alias: string, prefix: string): number {
         const code = alias?.startsWith(prefix) ? alias.slice(prefix.length) : ''
         const single = /^([A-Z])(\d{3})$/.exec(code)
-        if (single && Number(single[2]) > 0) return (single[1].charCodeAt(0) - 65) * 999 + Number(single[2])
+        if (single && Number(single[2]) > 0) {
+            return (single[1].charCodeAt(0) - 65) * 999 + Number(single[2])
+        }
         const double = /^([A-Z])([A-Z])(\d{2})$/.exec(code)
         if (double && Number(double[3]) > 0) {
             const group = (double[1].charCodeAt(0) - 65) * 26 + double[2].charCodeAt(0) - 65
@@ -80,14 +90,18 @@ export class ChannelUtilsService {
     public async findCountryRequired(countryKeyId: number): Promise<feign.SkylineCountrySummaryResponseDto> {
         const authorization = this.authorization()
         const [country] = await this.skylineFeignClient.httpBaseSkylineColumnCountryResolver(authorization, { keyIds: [countryKeyId] })
-        if (!country) throw new BadRequestException('方向不存在')
+        if (!country) {
+            throw new BadRequestException('方向不存在')
+        }
         return country
     }
 
     /** 校验归属人账号存在。 */
     public async assertUserExists(uid: string): Promise<void> {
         const [user] = await this.skylineFeignClient.httpBaseSkylineColumnUserResolver(this.authorization(), { uids: [uid] })
-        if (!user) throw new BadRequestException('归属人不存在')
+        if (!user) {
+            throw new BadRequestException('归属人不存在')
+        }
     }
 
     /** 查询通道全部绑定的端口，不分页；供通道详情使用。 */
@@ -103,9 +117,14 @@ export class ChannelUtilsService {
         ports: Array<Pick<Schema.TbSrmChannelPort, 'channelKeyId' | 'status'>>
         routes: Array<Pick<Schema.TbSrmRouteChannel, 'channelKeyId'>>
     }> {
-        if (keyIds.length === 0) return { ports: [], routes: [] }
+        if (keyIds.length === 0) {
+            return { ports: [], routes: [] }
+        }
         const [ports, routes] = await Promise.all([
-            this.portRepository.find({ select: { channelKeyId: true, status: true }, where: { channelKeyId: In(keyIds) } }),
+            this.portRepository.find({
+                select: { channelKeyId: true, status: true },
+                where: { channelKeyId: In(keyIds) }
+            }),
             this.repository.manager.find(Schema.TbSrmRouteChannel, {
                 select: { channelKeyId: true },
                 where: { channelKeyId: In(keyIds) }
@@ -116,7 +135,9 @@ export class ChannelUtilsService {
 
     private requireEmployeeNumber(number: string | undefined, label: string): string {
         const userNumber = number?.trim()
-        if (!userNumber || !/^[A-Za-z0-9]+$/.test(userNumber)) throw new BadRequestException(`${label}缺少有效工号，无法生成通道别名`)
+        if (!userNumber || !/^[A-Za-z0-9]+$/.test(userNumber)) {
+            throw new BadRequestException(`${label}缺少有效工号，无法生成通道别名`)
+        }
         return userNumber
     }
 

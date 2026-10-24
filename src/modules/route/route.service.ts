@@ -207,18 +207,39 @@ export class RouteService {
             const route = await this.routeUtilsService.findRouteRequired(manager, input.routeKeyId)
             const items = input.channels
             const channelKeyIds = items.map(item => item.channelKeyId)
-            if (new Set(channelKeyIds).size !== channelKeyIds.length) throw new BadRequestException('不能重复选择相同通道')
-            const channels = await manager.find(Schema.TbSrmChannel, { where: { keyId: In(channelKeyIds) } })
-            if (channels.length !== channelKeyIds.length) throw new NotFoundException('部分通道不存在')
-            const current = await manager.find(Schema.TbSrmRouteChannel, { where: { routeKeyId: route.keyId } })
+            if (new Set(channelKeyIds).size !== channelKeyIds.length) {
+                throw new BadRequestException('不能重复选择相同通道')
+            }
+            const channels = await manager.find(Schema.TbSrmChannel, {
+                where: { keyId: In(channelKeyIds) }
+            })
+            if (channels.length !== channelKeyIds.length) {
+                throw new NotFoundException('部分通道不存在')
+            }
+
+            const current = await manager.find(Schema.TbSrmRouteChannel, {
+                where: { routeKeyId: route.keyId }
+            })
             const selected = new Set(channelKeyIds)
+            const submitted = new Map(items.map(item => [item.channelKeyId, item]))
+            const kept = current.filter(item => selected.has(item.channelKeyId))
+            const existed = new Map(kept.map(item => [item.channelKeyId, item]))
             const removed = current.filter(item => !selected.has(item.channelKeyId))
-            if (removed.length > 0) await manager.delete(Schema.TbSrmRouteChannel, { keyId: In(removed.map(item => item.keyId)) })
-            const existed = new Map(current.filter(item => selected.has(item.channelKeyId)).map(item => [item.channelKeyId, item]))
+            if (removed.length > 0) {
+                await manager.delete(Schema.TbSrmRouteChannel, {
+                    keyId: In(removed.map(item => item.keyId))
+                })
+            }
+
             for (const item of items) {
                 const binding = existed.get(item.channelKeyId)
-                if (!binding || (binding.priority === item.priority && binding.weight === item.weight && binding.status === item.status))
+                if (!binding) {
                     continue
+                }
+                const unchanged = binding.priority === item.priority && binding.weight === item.weight && binding.status === item.status
+                if (unchanged) {
+                    continue
+                }
                 await manager.update(
                     Schema.TbSrmRouteChannel,
                     { keyId: binding.keyId },
@@ -230,20 +251,23 @@ export class RouteService {
                     }
                 )
             }
+
             const added = channels.filter(channel => !existed.has(channel.keyId))
             if (added.length > 0) {
-                const submitted = new Map(items.map(item => [item.channelKeyId, item]))
                 await manager.insert(
                     Schema.TbSrmRouteChannel,
-                    added.map(channel => ({
-                        routeKeyId: route.keyId,
-                        channelKeyId: channel.keyId,
-                        priority: submitted.get(channel.keyId).priority,
-                        weight: submitted.get(channel.keyId).weight,
-                        status: submitted.get(channel.keyId).status,
-                        createBy: principal.uid,
-                        modifyBy: principal.uid
-                    }))
+                    added.map(channel => {
+                        const item = submitted.get(channel.keyId)
+                        return {
+                            routeKeyId: route.keyId,
+                            channelKeyId: channel.keyId,
+                            priority: item.priority,
+                            weight: item.weight,
+                            status: item.status,
+                            createBy: principal.uid,
+                            modifyBy: principal.uid
+                        }
+                    })
                 )
             }
             return { count: items.length }
@@ -263,41 +287,74 @@ export class RouteService {
     ): Promise<RouteDto.RouteCountResponseDto> {
         const items = input.apps
         const appKeyIds = items.map(item => item.appKeyId)
-        if (new Set(appKeyIds).size !== appKeyIds.length) throw new BadRequestException('不能重复选择相同短信应用')
-        const apps = await this.smsFeignClient.httpBaseSmsColumnAppResolver(this.routeUtilsService.authorization(), { keyIds: appKeyIds })
-        if (apps.length !== appKeyIds.length) throw new NotFoundException('部分短信应用不存在')
+        if (new Set(appKeyIds).size !== appKeyIds.length) {
+            throw new BadRequestException('不能重复选择相同短信应用')
+        }
+        const apps = await this.smsFeignClient.httpBaseSmsColumnAppResolver(this.routeUtilsService.authorization(), {
+            keyIds: appKeyIds
+        })
+        if (apps.length !== appKeyIds.length) {
+            throw new NotFoundException('部分短信应用不存在')
+        }
+
         return this.repository.manager.transaction(async manager => {
             const route = await this.routeUtilsService.findRouteRequired(manager, input.routeKeyId)
-            if (apps.some(app => String(app.type) !== route.type)) throw new BadRequestException('短信应用类型与路由类型不一致')
-            const current = await manager.find(Schema.TbSrmRouteApp, { where: { routeKeyId: route.keyId } })
+            if (apps.some(app => String(app.type) !== route.type)) {
+                throw new BadRequestException('短信应用类型与路由类型不一致')
+            }
+
+            const current = await manager.find(Schema.TbSrmRouteApp, {
+                where: { routeKeyId: route.keyId }
+            })
             const selected = new Set(appKeyIds)
             const removed = current.filter(item => !selected.has(item.appKeyId))
-            if (removed.length > 0) await manager.delete(Schema.TbSrmRouteApp, { keyId: In(removed.map(item => item.keyId)) })
+            if (removed.length > 0) {
+                await manager.delete(Schema.TbSrmRouteApp, {
+                    keyId: In(removed.map(item => item.keyId))
+                })
+            }
+
             const submitted = new Map(items.map(item => [item.appKeyId, item]))
-            const existed = await manager.find(Schema.TbSrmRouteApp, { where: { appKeyId: In(appKeyIds) } })
+            const bindings = await manager.find(Schema.TbSrmRouteApp, {
+                where: { appKeyId: In(appKeyIds) }
+            })
+            const existed = new Map(bindings.map(item => [item.appKeyId, item]))
             for (const app of apps) {
                 const item = submitted.get(app.keyId)
-                const binding = existed.find(row => row.appKeyId === app.keyId)
-                if (binding) {
-                    if (binding.routeKeyId === route.keyId && binding.userKeyId === app.userKeyId && binding.status === item.status)
-                        continue
-                    manager.merge(Schema.TbSrmRouteApp, binding, {
-                        routeKeyId: route.keyId,
-                        userKeyId: app.userKeyId,
-                        status: item.status,
-                        modifyBy: principal.uid
-                    })
-                    await manager.save(binding)
-                } else {
-                    await manager.insert(Schema.TbSrmRouteApp, {
-                        appKeyId: app.keyId,
-                        userKeyId: app.userKeyId,
-                        routeKeyId: route.keyId,
-                        status: item.status,
-                        createBy: principal.uid,
-                        modifyBy: principal.uid
-                    })
+                const binding = existed.get(app.keyId)
+                if (!binding) {
+                    continue
                 }
+                const unchanged =
+                    binding.routeKeyId === route.keyId && binding.userKeyId === app.userKeyId && binding.status === item.status
+                if (unchanged) {
+                    continue
+                }
+                manager.merge(Schema.TbSrmRouteApp, binding, {
+                    routeKeyId: route.keyId,
+                    userKeyId: app.userKeyId,
+                    status: item.status,
+                    modifyBy: principal.uid
+                })
+                await manager.save(binding)
+            }
+
+            const added = apps.filter(app => !existed.has(app.keyId))
+            if (added.length > 0) {
+                await manager.insert(
+                    Schema.TbSrmRouteApp,
+                    added.map(app => {
+                        const item = submitted.get(app.keyId)
+                        return {
+                            appKeyId: app.keyId,
+                            userKeyId: app.userKeyId,
+                            routeKeyId: route.keyId,
+                            status: item.status,
+                            createBy: principal.uid,
+                            modifyBy: principal.uid
+                        }
+                    })
+                )
             }
             return { count: apps.length }
         })

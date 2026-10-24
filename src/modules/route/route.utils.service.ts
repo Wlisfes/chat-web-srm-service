@@ -137,6 +137,7 @@ export class RouteUtilsService {
         }
         return [...groups.values()].sort((a, b) => a.countryKeyId - b.countryKeyId || a.type.localeCompare(b.type))
     }
+
     /** 校验路由存在。 */
     public async findRouteRequired(manager: EntityManager, keyId: number): Promise<Schema.TbSrmRoute> {
         const route = await manager.findOneBy(Schema.TbSrmRoute, { keyId })

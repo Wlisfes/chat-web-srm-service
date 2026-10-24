@@ -1,24 +1,20 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { DataBaseService, EntityManager, In, InjectRepository, Not, Repository } from '@wlisfes/chat-web-base-schema/database'
-import { fetchUntiePagination, fetchVagueKeyword, fetchVagueNumberKeyword } from '@wlisfes/chat-web-base-schema/utils'
-import { PageResult, fetchResolver, isNotEmpty } from '@wlisfes/chat-web-base-schema/utils'
+import { DataBaseService, In, InjectRepository, Repository } from '@wlisfes/chat-web-base-schema/database'
+import { PageResult, fetchResolver, fetchUntiePagination, isNotEmpty } from '@wlisfes/chat-web-base-schema/utils'
+import { ChannelUtilsService } from '@/modules/channel/channel.utils.service'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { ConfigService } from '@nestjs/config'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 import * as ChannelDto from '@/modules/channel/dto/channel.dto'
-import { SimbankUtilsService } from '@/modules/simbank/simbank.utils.service'
-import { ChannelUtilsService } from '@/modules/channel/channel.utils.service'
 
 @Injectable()
 export class ChannelService {
     constructor(
         @InjectRepository(Schema.TbSrmChannel) private readonly repository: Repository<Schema.TbSrmChannel>,
-        @InjectRepository(Schema.TbSrmSimbankPort) private readonly simbankPortRepository: Repository<Schema.TbSrmSimbankPort>,
         private readonly database: DataBaseService,
         private readonly skylineFeignClient: feign.FeignClientSkylineManager,
         private readonly configService: ConfigService,
-        private readonly simbankUtilsService: SimbankUtilsService,
         private readonly channelUtilsService: ChannelUtilsService
     ) {}
 
@@ -33,7 +29,7 @@ export class ChannelService {
 
     /** 新增通道：别名按 TSK + 归属人工号 + 类型 + 分段序号自动生成，归属人默认当前登录人，新建通道默认停用。 */
     public async httpBaseSrmCreateChannel(principal: AuthPrincipal, input: ChannelDto.CreateChannelDto): Promise<Schema.TbSrmChannel> {
-        const country = await this.channelUtilsService.findCountryRequired(input.countryKeyId)
+        await this.channelUtilsService.findCountryRequired(input.countryKeyId)
         const ownerUserUid = input.ownerUserUid ?? principal.uid
         const ownerNumber = await this.channelUtilsService.resolveOwnerNumber(principal, ownerUserUid)
         return this.repository.manager.transaction(async manager => {
@@ -60,7 +56,9 @@ export class ChannelService {
     public async httpBaseSrmUpdateChannel(principal: AuthPrincipal, input: ChannelDto.UpdateChannelDto): Promise<Schema.TbSrmChannel> {
         return this.repository.manager.transaction(async manager => {
             const channel = await this.channelUtilsService.findChannelRequired(manager, input.keyId)
-            if (input.ownerUserUid !== channel.ownerUserUid) await this.channelUtilsService.assertUserExists(input.ownerUserUid)
+            if (input.ownerUserUid !== channel.ownerUserUid) {
+                await this.channelUtilsService.assertUserExists(input.ownerUserUid)
+            }
             manager.merge(Schema.TbSrmChannel, channel, {
                 name: input.name.trim(),
                 ownerUserUid: input.ownerUserUid,
@@ -85,7 +83,9 @@ export class ChannelService {
                     channelKeyId: channel.keyId,
                     status: Schema.TbSrmChannelPortStatus.ENABLE
                 })
-                if (enabled === 0) throw new BadRequestException('通道没有启用的端口，不能启用')
+                if (enabled === 0) {
+                    throw new BadRequestException('通道没有启用的端口，不能启用')
+                }
             }
             channel.status = input.status
             channel.modifyBy = principal.uid
@@ -97,7 +97,9 @@ export class ChannelService {
     public async httpBaseSrmDeleteChannel(input: ChannelDto.ChannelKeyDto): Promise<{ success: boolean }> {
         return this.repository.manager.transaction(async manager => {
             const channel = await this.channelUtilsService.findChannelRequired(manager, input.keyId)
-            if (channel.status === Schema.TbSrmChannelStatus.ENABLE) throw new ConflictException('请先停用通道')
+            if (channel.status === Schema.TbSrmChannelStatus.ENABLE) {
+                throw new ConflictException('请先停用通道')
+            }
             if (await manager.existsBy(Schema.TbSrmRouteChannel, { channelKeyId: channel.keyId })) {
                 throw new ConflictException('通道仍被路由使用，请先从路由中移除')
             }
@@ -109,9 +111,11 @@ export class ChannelService {
 
     /** 通道详情：附带该通道已绑定的端口列表。 */
     public async httpBaseSrmChannelResolver(input: ChannelDto.ChannelKeyDto): Promise<ChannelDto.ChannelResolverResponseDto> {
-        return await this.channelUtilsService.findChannelRequired(this.repository.manager, input.keyId).then(async channel => {
-            return { ...channel, list: await this.channelUtilsService.findChannelPorts(channel.keyId) }
-        })
+        const channel = await this.channelUtilsService.findChannelRequired(this.repository.manager, input.keyId)
+        return {
+            ...channel,
+            list: await this.channelUtilsService.findChannelPorts(channel.keyId)
+        }
     }
 
     /** 通道分页：附带端口数、引用路由数、方向和归属人。 */
@@ -119,34 +123,56 @@ export class ChannelService {
         const { page, size } = fetchUntiePagination(input)
         return this.database.builder(this.repository, async qb => {
             const keyword = input.alias?.trim()
-            if (keyword) qb.andWhere('(t.alias LIKE :keyword OR t.name LIKE :keyword)', { keyword: `%${keyword}%` })
-            if (isNotEmpty(input.type)) qb.andWhere('t.type = :type', { type: input.type })
-            if (isNotEmpty(input.countryKeyId)) qb.andWhere('t.countryKeyId = :countryKeyId', { countryKeyId: input.countryKeyId })
-            if (isNotEmpty(input.ownerUserUid)) qb.andWhere('t.ownerUserUid = :ownerUserUid', { ownerUserUid: input.ownerUserUid })
-            if (isNotEmpty(input.status)) qb.andWhere('t.status = :status', { status: input.status })
-            qb.orderBy('t.createTime', 'DESC').addOrderBy('t.keyId', 'DESC')
+            if (keyword) {
+                qb.andWhere('(t.alias LIKE :keyword OR t.name LIKE :keyword)', { keyword: `%${keyword}%` })
+            }
+            if (isNotEmpty(input.type)) {
+                qb.andWhere('t.type = :type', { type: input.type })
+            }
+            if (isNotEmpty(input.countryKeyId)) {
+                qb.andWhere('t.countryKeyId = :countryKeyId', { countryKeyId: input.countryKeyId })
+            }
+            if (isNotEmpty(input.ownerUserUid)) {
+                qb.andWhere('t.ownerUserUid = :ownerUserUid', { ownerUserUid: input.ownerUserUid })
+            }
+            if (isNotEmpty(input.status)) {
+                qb.andWhere('t.status = :status', { status: input.status })
+            }
+            qb.orderBy('t.createTime', 'DESC')
+            qb.addOrderBy('t.keyId', 'DESC')
             qb.skip((page - 1) * size).take(size)
-            const [list, total] = await qb.getManyAndCount()
-            const keyIds = list.map(item => item.keyId)
-            const { ports, routes } = await this.channelUtilsService.findChannelPortStats(keyIds)
-
-            const rows = list.map(item => ({
-                ...item,
-                portCount: ports.filter(port => port.channelKeyId === item.keyId).length,
-                enablePortCount: ports.filter(
-                    port => port.channelKeyId === item.keyId && port.status === Schema.TbSrmChannelPortStatus.ENABLE
-                ).length,
-                routeCount: routes.filter(route => route.channelKeyId === item.keyId).length
-            }))
-            await Promise.all([
-                feign.fetchAppendSkylineCountryOptions(this.skylineFeignClient, this.configService, rows, ['countryKeyId']),
-                feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, rows, [
-                    'ownerUserUid',
-                    'createBy',
-                    'modifyBy'
+            return await qb.getManyAndCount().then(async ([list, total]) => {
+                const keyIds = list.map(item => item.keyId)
+                const { ports, routes } = await this.channelUtilsService.findChannelPortStats(keyIds)
+                const portGroups = new Map<number, typeof ports>()
+                for (const port of ports) {
+                    const group = portGroups.get(port.channelKeyId) ?? []
+                    group.push(port)
+                    portGroups.set(port.channelKeyId, group)
+                }
+                const routeCounts = new Map<number, number>()
+                for (const route of routes) {
+                    routeCounts.set(route.channelKeyId, (routeCounts.get(route.channelKeyId) ?? 0) + 1)
+                }
+                const rows = list.map(item => {
+                    const ownPorts = portGroups.get(item.keyId) ?? []
+                    return {
+                        ...item,
+                        portCount: ownPorts.length,
+                        enablePortCount: ownPorts.filter(port => port.status === Schema.TbSrmChannelPortStatus.ENABLE).length,
+                        routeCount: routeCounts.get(item.keyId) ?? 0
+                    }
+                })
+                await Promise.all([
+                    feign.fetchAppendSkylineCountryOptions(this.skylineFeignClient, this.configService, rows, ['countryKeyId']),
+                    feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, rows, [
+                        'ownerUserUid',
+                        'createBy',
+                        'modifyBy'
+                    ])
                 ])
-            ])
-            return fetchResolver({ page, size, total, list: rows })
+                return fetchResolver({ page, size, total, list: rows })
+            })
         })
     }
 
@@ -167,35 +193,61 @@ export class ChannelService {
             const channel = await this.channelUtilsService.findChannelRequired(manager, input.channelKeyId)
             const items = input.list
             const portKeyIds = items.map(item => item.portKeyId)
-            if (new Set(portKeyIds).size !== portKeyIds.length) throw new BadRequestException('不能重复选择相同端口')
-            const ports = await manager.find(Schema.TbSrmSimbankPort, { where: { keyId: In(portKeyIds) } })
-            if (ports.length !== portKeyIds.length) throw new NotFoundException('部分端口不存在')
-            const mismatched = ports.filter(
-                port => port.activateStatus !== Schema.TbSrmSimbankPortActivateStatus.ACTIVE || port.countryKeyId !== channel.countryKeyId
-            )
-            if (mismatched.length > 0) {
-                throw new BadRequestException(`端口未激活或激活方向与通道不一致：${mismatched.map(port => port.port).join('、')}`)
+            if (new Set(portKeyIds).size !== portKeyIds.length) {
+                throw new BadRequestException('不能重复选择相同端口')
             }
-            const bound = await manager.find(Schema.TbSrmChannelPort, { where: { portKeyId: In(portKeyIds) } })
+
+            const ports = await manager.find(Schema.TbSrmSimbankPort, {
+                where: { keyId: In(portKeyIds) }
+            })
+            if (ports.length !== portKeyIds.length) {
+                throw new NotFoundException('部分端口不存在')
+            }
+            const mismatched = ports.filter(port => {
+                return port.activateStatus !== Schema.TbSrmSimbankPortActivateStatus.ACTIVE || port.countryKeyId !== channel.countryKeyId
+            })
+            if (mismatched.length > 0) {
+                const numbers = mismatched.map(port => port.port).join('、')
+                throw new BadRequestException(`端口未激活或激活方向与通道不一致：${numbers}`)
+            }
+
+            const bound = await manager.find(Schema.TbSrmChannelPort, {
+                where: { portKeyId: In(portKeyIds) }
+            })
             const conflicts = bound.filter(item => item.channelKeyId !== channel.keyId)
             if (conflicts.length > 0) {
-                const numbers = ports.filter(port => conflicts.some(item => item.portKeyId === port.keyId)).map(port => port.port)
+                const conflictIds = new Set(conflicts.map(item => item.portKeyId))
+                const numbers = ports.filter(port => conflictIds.has(port.keyId)).map(port => port.port)
                 throw new ConflictException(`端口已绑定其他通道：${numbers.join('、')}`)
             }
-            if (
-                channel.status === Schema.TbSrmChannelStatus.ENABLE &&
-                !items.some(item => item.status === Schema.TbSrmChannelPortStatus.ENABLE)
-            ) {
+            const hasEnabled = items.some(item => item.status === Schema.TbSrmChannelPortStatus.ENABLE)
+            if (channel.status === Schema.TbSrmChannelStatus.ENABLE && !hasEnabled) {
                 throw new ConflictException(`通道【${channel.alias}】启用中，至少保留一个启用端口，或先停用通道`)
             }
-            const current = await manager.find(Schema.TbSrmChannelPort, { where: { channelKeyId: channel.keyId } })
+
+            const current = await manager.find(Schema.TbSrmChannelPort, {
+                where: { channelKeyId: channel.keyId }
+            })
             const selected = new Set(portKeyIds)
+            const submitted = new Map(items.map(item => [item.portKeyId, item]))
+            const kept = current.filter(item => selected.has(item.portKeyId))
+            const existed = new Map(kept.map(item => [item.portKeyId, item]))
             const removed = current.filter(item => !selected.has(item.portKeyId))
-            if (removed.length > 0) await manager.delete(Schema.TbSrmChannelPort, { keyId: In(removed.map(item => item.keyId)) })
-            const existed = new Map(current.filter(item => selected.has(item.portKeyId)).map(item => [item.portKeyId, item]))
+            if (removed.length > 0) {
+                await manager.delete(Schema.TbSrmChannelPort, {
+                    keyId: In(removed.map(item => item.keyId))
+                })
+            }
+
             for (const item of items) {
                 const binding = existed.get(item.portKeyId)
-                if (!binding || (binding.weight === item.weight && binding.status === item.status)) continue
+                if (!binding) {
+                    continue
+                }
+                const unchanged = binding.weight === item.weight && binding.status === item.status
+                if (unchanged) {
+                    continue
+                }
                 await manager.update(
                     Schema.TbSrmChannelPort,
                     { keyId: binding.keyId },
@@ -206,20 +258,23 @@ export class ChannelService {
                     }
                 )
             }
+
             const added = ports.filter(port => !existed.has(port.keyId))
             if (added.length > 0) {
-                const submitted = new Map(items.map(item => [item.portKeyId, item]))
                 await manager.insert(
                     Schema.TbSrmChannelPort,
-                    added.map(port => ({
-                        channelKeyId: channel.keyId,
-                        portKeyId: port.keyId,
-                        simbankKeyId: port.simbankKeyId,
-                        weight: submitted.get(port.keyId).weight,
-                        status: submitted.get(port.keyId).status,
-                        createBy: principal.uid,
-                        modifyBy: principal.uid
-                    }))
+                    added.map(port => {
+                        const item = submitted.get(port.keyId)
+                        return {
+                            channelKeyId: channel.keyId,
+                            portKeyId: port.keyId,
+                            simbankKeyId: port.simbankKeyId,
+                            weight: item.weight,
+                            status: item.status,
+                            createBy: principal.uid,
+                            modifyBy: principal.uid
+                        }
+                    })
                 )
             }
             return { count: items.length }
