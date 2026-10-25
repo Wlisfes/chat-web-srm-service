@@ -1,12 +1,13 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { DataBaseService, In, InjectRepository, Repository } from '@wlisfes/chat-web-base-schema/database'
 import { PageResult, fetchResolver, fetchUntiePagination, isNotEmpty } from '@wlisfes/chat-web-base-schema/utils'
+import { ChannelEventService } from '@/modules/channel/channel-event.service'
 import { ChannelUtilsService } from '@/modules/channel/channel.utils.service'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { ConfigService } from '@nestjs/config'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
-import * as Schema from '@wlisfes/chat-web-base-schema'
 import * as ChannelDto from '@/modules/channel/dto/channel.dto'
+import * as Schema from '@wlisfes/chat-web-base-schema'
 
 @Injectable()
 export class ChannelService {
@@ -15,8 +16,15 @@ export class ChannelService {
         private readonly database: DataBaseService,
         private readonly skylineFeignClient: feign.FeignClientSkylineManager,
         private readonly configService: ConfigService,
-        private readonly channelUtilsService: ChannelUtilsService
+        private readonly channelUtilsService: ChannelUtilsService,
+        private readonly channelEventService: ChannelEventService
     ) {}
+
+    private async fetchChannelPublish(channel: Schema.TbSrmChannel, deleted?: boolean): Promise<Schema.TbSrmChannel> {
+        return await this.channelEventService.publish(channel, deleted).then(() => {
+            return channel
+        })
+    }
 
     /** 通道静态枚举。 */
     public httpBaseSrmChannelEnums(): ChannelDto.ChannelEnumsResponseDto {
@@ -32,7 +40,7 @@ export class ChannelService {
         await this.channelUtilsService.findCountryRequired(input.countryKeyId)
         const ownerUserUid = input.ownerUserUid ?? principal.uid
         const ownerNumber = await this.channelUtilsService.resolveOwnerNumber(principal, ownerUserUid)
-        return this.repository.manager.transaction(async manager => {
+        const channel = await this.repository.manager.transaction(async manager => {
             const alias = await this.channelUtilsService.createAlias(manager, ownerNumber, input.type)
             return manager.save(
                 manager.create(Schema.TbSrmChannel, {
@@ -50,11 +58,12 @@ export class ChannelService {
                 })
             )
         })
+        return await this.fetchChannelPublish(channel)
     }
 
     /** 编辑通道：别名、方向、类型不可修改；可调整名称、归属人和发送参数。 */
     public async httpBaseSrmUpdateChannel(principal: AuthPrincipal, input: ChannelDto.UpdateChannelDto): Promise<Schema.TbSrmChannel> {
-        return this.repository.manager.transaction(async manager => {
+        const channel = await this.repository.manager.transaction(async manager => {
             const channel = await this.channelUtilsService.findChannelRequired(manager, input.keyId)
             if (input.ownerUserUid !== channel.ownerUserUid) {
                 await this.channelUtilsService.assertUserExists(input.ownerUserUid)
@@ -69,6 +78,7 @@ export class ChannelService {
             })
             return manager.save(channel)
         })
+        return await this.fetchChannelPublish(channel)
     }
 
     /** 启用、停用通道：启用前至少要有一个启用的绑定端口。 */
@@ -76,7 +86,7 @@ export class ChannelService {
         principal: AuthPrincipal,
         input: ChannelDto.UpdateChannelStatusDto
     ): Promise<Schema.TbSrmChannel> {
-        return this.repository.manager.transaction(async manager => {
+        const channel = await this.repository.manager.transaction(async manager => {
             const channel = await this.channelUtilsService.findChannelRequired(manager, input.keyId)
             if (input.status === Schema.TbSrmChannelStatus.ENABLE) {
                 const enabled = await manager.countBy(Schema.TbSrmChannelPort, {
@@ -91,11 +101,12 @@ export class ChannelService {
             channel.modifyBy = principal.uid
             return manager.save(channel)
         })
+        return await this.fetchChannelPublish(channel)
     }
 
     /** 删除通道：必须先停用并从路由中移除；通道绑定的端口在同一事务内一起解绑。 */
     public async httpBaseSrmDeleteChannel(input: ChannelDto.ChannelKeyDto): Promise<{ success: boolean }> {
-        return this.repository.manager.transaction(async manager => {
+        const channel = await this.repository.manager.transaction(async manager => {
             const channel = await this.channelUtilsService.findChannelRequired(manager, input.keyId)
             if (channel.status === Schema.TbSrmChannelStatus.ENABLE) {
                 throw new ConflictException('请先停用通道')
@@ -105,6 +116,9 @@ export class ChannelService {
             }
             await manager.delete(Schema.TbSrmChannelPort, { channelKeyId: channel.keyId })
             await manager.delete(Schema.TbSrmChannel, { keyId: channel.keyId })
+            return channel
+        })
+        return await this.fetchChannelPublish(channel, true).then(() => {
             return { success: true }
         })
     }
