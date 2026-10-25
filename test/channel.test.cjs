@@ -13,7 +13,8 @@ function createService(manager, overrides = {}) {
     const utils = new ChannelUtilsService(repository, overrides.portRepository ?? {}, overrides.skyline ?? {}, {
         get: () => 'service-token'
     })
-    return new ChannelService(repository, overrides.database ?? {}, overrides.skyline ?? {}, { get: () => 'service-token' }, utils)
+    const events = overrides.events ?? { publish: async () => {} }
+    return new ChannelService(repository, overrides.database ?? {}, overrides.skyline ?? {}, { get: () => 'service-token' }, utils, events)
 }
 
 function aliasQuery(aliases) {

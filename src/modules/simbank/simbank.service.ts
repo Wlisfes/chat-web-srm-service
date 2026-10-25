@@ -297,8 +297,6 @@ export class SimbankService {
                     't.sim LIKE :numberKeyword',
                     't.content LIKE :keyword',
                     't.iccid LIKE :keyword',
-                    't.taskId LIKE :keyword',
-                    't.taskName LIKE :keyword',
                     't.simbankName LIKE :keyword',
                     't.simbankAlias LIKE :keyword',
                     't.channelAlias LIKE :keyword',
