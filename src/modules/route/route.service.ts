@@ -3,6 +3,7 @@ import { PageResult, fetchResolver, fetchUntiePagination, fetchVagueKeyword, isN
 import { DataBaseService, In, InjectRepository, Repository, Like } from '@wlisfes/chat-web-base-schema/database'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { RouteUtilsService } from '@/modules/route/route.utils.service'
+import { RouteConfigEventService } from '@/modules/route/route-config-event.service'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 import * as RouteDto from '@/modules/route/dto/route.dto'
@@ -13,7 +14,8 @@ export class RouteService {
         @InjectRepository(Schema.TbSrmRoute) private readonly repository: Repository<Schema.TbSrmRoute>,
         private readonly database: DataBaseService,
         private readonly smsFeignClient: feign.FeignClientSmsManager,
-        private readonly routeUtilsService: RouteUtilsService
+        private readonly routeUtilsService: RouteUtilsService,
+        private readonly routeConfigEventService: RouteConfigEventService
     ) {}
 
     /** 路由静态枚举。 */
@@ -34,7 +36,7 @@ export class RouteService {
 
     /** 新增路由：插入后按 LSK + 主键 + 路由类型生成别名；类型创建后不可修改。 */
     public async httpBaseSrmCreateRoute(principal: AuthPrincipal, input: RouteDto.CreateRouteDto): Promise<Schema.TbSrmRoute> {
-        return this.repository.manager.transaction(async manager => {
+        const result = await this.repository.manager.transaction(async manager => {
             const route = await manager.save(
                 manager.create(Schema.TbSrmRoute, {
                     name: input.name.trim(),
@@ -49,11 +51,14 @@ export class RouteService {
             route.alias = this.routeUtilsService.formatAlias(route.keyId, route.type)
             return manager.save(route)
         })
+        // 事务提交后广播选路配置变更，Channel 据此刷新选路缓存。
+        await this.routeConfigEventService.publish('新增路由')
+        return result
     }
 
     /** 编辑路由：只能修改名称、优先级、状态和备注。 */
     public async httpBaseSrmUpdateRoute(principal: AuthPrincipal, input: RouteDto.UpdateRouteDto): Promise<Schema.TbSrmRoute> {
-        return this.repository.manager.transaction(async manager => {
+        const result = await this.repository.manager.transaction(async manager => {
             const route = await this.routeUtilsService.findRouteRequired(manager, input.keyId)
             manager.merge(Schema.TbSrmRoute, route, {
                 name: input.name.trim(),
@@ -64,11 +69,14 @@ export class RouteService {
             })
             return manager.save(route)
         })
+        // 事务提交后广播选路配置变更，Channel 据此刷新选路缓存。
+        await this.routeConfigEventService.publish('编辑路由')
+        return result
     }
 
     /** 删除路由：仍有短信应用绑定时不能删除；同时删除路由下的规则组和通道配置。 */
     public async httpBaseSrmDeleteRoute(input: RouteDto.RouteKeyDto): Promise<{ success: boolean }> {
-        return this.repository.manager.transaction(async manager => {
+        const result = await this.repository.manager.transaction(async manager => {
             const route = await this.routeUtilsService.findRouteRequired(manager, input.keyId)
             if (await manager.existsBy(Schema.TbSrmRouteApp, { routeKeyId: route.keyId })) {
                 throw new ConflictException('路由仍有短信应用绑定，请先解绑或改绑')
@@ -78,6 +86,9 @@ export class RouteService {
             await manager.delete(Schema.TbSrmRoute, { keyId: route.keyId })
             return { success: true }
         })
+        // 事务提交后广播选路配置变更，Channel 据此刷新选路缓存。
+        await this.routeConfigEventService.publish('删除路由')
+        return result
     }
 
     /** 路由详情：附带绑定的通道、短信应用和规则组。 */
@@ -197,7 +208,7 @@ export class RouteService {
             }))
         )
 
-        return this.repository.manager.transaction(async manager => {
+        const result = await this.repository.manager.transaction(async manager => {
             const route = await this.routeUtilsService.findRouteRequired(manager, input.routeKeyId)
             const current = await manager.find(Schema.TbSrmRouteRule, {
                 where: { routeKeyId: route.keyId }
@@ -256,6 +267,9 @@ export class RouteService {
             }
             return { count: items.length }
         })
+        // 事务提交后广播选路配置变更，Channel 据此刷新选路缓存。
+        await this.routeConfigEventService.publish('更新路由规则组')
+        return result
     }
 
     /* ------------------------------ 路由通道 ------------------------------ */
@@ -268,7 +282,7 @@ export class RouteService {
         principal: AuthPrincipal,
         input: RouteDto.BindRouteChannelDto
     ): Promise<RouteDto.RouteCountResponseDto> {
-        return this.repository.manager.transaction(async manager => {
+        const result = await this.repository.manager.transaction(async manager => {
             const route = await this.routeUtilsService.findRouteRequired(manager, input.routeKeyId)
             const items = input.channels
             const channelKeyIds = items.map(item => item.channelKeyId)
@@ -337,6 +351,9 @@ export class RouteService {
             }
             return { count: items.length }
         })
+        // 事务提交后广播选路配置变更，Channel 据此刷新选路缓存。
+        await this.routeConfigEventService.publish('更新路由通道')
+        return result
     }
 
     /* ------------------------------ 短信应用绑定 ------------------------------ */
@@ -362,7 +379,7 @@ export class RouteService {
             throw new NotFoundException('部分短信应用不存在')
         }
 
-        return this.repository.manager.transaction(async manager => {
+        const result = await this.repository.manager.transaction(async manager => {
             const route = await this.routeUtilsService.findRouteRequired(manager, input.routeKeyId)
             if (apps.some(app => String(app.type) !== route.type)) {
                 throw new BadRequestException('短信应用类型与路由类型不一致')
@@ -423,5 +440,8 @@ export class RouteService {
             }
             return { count: apps.length }
         })
+        // 事务提交后广播选路配置变更，Channel 据此刷新选路缓存。
+        await this.routeConfigEventService.publish('更新应用绑定')
+        return result
     }
 }

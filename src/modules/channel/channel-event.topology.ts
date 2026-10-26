@@ -16,4 +16,6 @@ export async function setupMessageTopology(channel: ConfirmChannel): Promise<voi
         overflow: 'drop-head'
     })
     await channel.bindQueue(constants.SMS_CHANNEL_SNAPSHOT_QUEUE, constants.SMS_EXCHANGE, constants.SMS_CHANNEL_SNAPSHOT_ROUTING_KEY)
+    // 选路配置变更广播交换机；队列由每个 Channel 实例自己声明。
+    await channel.assertExchange(constants.SMS_ROUTE_CONFIG_EXCHANGE, 'fanout', { durable: true })
 }

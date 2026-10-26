@@ -69,7 +69,7 @@ function createService(manager) {
     const configService = { get: () => 'service-token' }
     const channelUtils = { findChannels: async () => ({ links: [], linksOptions: new Map() }) }
     const utils = new RouteUtilsService(repository, skyline, configService, channelUtils, sms)
-    return new RouteService(repository, {}, sms, utils)
+    return new RouteService(repository, {}, sms, utils, { publish: async () => {} })
 }
 
 test('新增路由按传入类型保存，优先级默认 1；编辑不能修改类型', async () => {
