@@ -57,6 +57,20 @@ export class RouteUtilsService {
         return names
     }
 
+    /** 批量查询路由。 */
+    public async findRoutes(keyIds: number[]): Promise<Schema.TbSrmRoute[]> {
+        if (keyIds.length === 0) return []
+        return this.repository.find({ where: { keyId: In(keyIds) } })
+    }
+
+    /** 取规则组条件中的方向主键（去重）。 */
+    public findRuleCountryKeyIds(rule: Schema.TbSrmRouteRule): number[] {
+        const keyIds = (rule.conditions ?? [])
+            .filter(condition => condition.field === Schema.TbSrmRouteRuleField.COUNTRY)
+            .flatMap(condition => condition.value.map(Number))
+        return [...new Set(keyIds)]
+    }
+
     /** 查询路由下绑定的规则 */
     public async findRouteRules(routeKeyIds: number[]): Promise<LinkIndex<Schema.TbSrmRouteRule>> {
         const linksOptions = new Map<number, Array<Schema.TbSrmRouteRule>>()

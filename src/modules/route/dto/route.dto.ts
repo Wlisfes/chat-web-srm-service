@@ -1,6 +1,6 @@
 import { ApiProperty, IntersectionType, PartialType, PickType } from '@nestjs/swagger'
 import { Type } from 'class-transformer'
-import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsInt, Min, ValidateNested } from 'class-validator'
+import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsInt, IsOptional, IsString, MaxLength, Min, ValidateNested } from 'class-validator'
 import { EnumsResponseDto, PageResponseDataDto } from '@wlisfes/chat-web-base-schema/decorator'
 import { PageDto, VagueDto } from '@wlisfes/chat-web-base-schema/utils'
 import * as Schema from '@wlisfes/chat-web-base-schema'
@@ -78,6 +78,39 @@ export class BindRouteRuleDto extends PickType(Schema.TbSrmRouteRuleDto, ['route
     @ValidateNested({ each: true })
     @Type(() => BindRouteRuleItemDto)
     list: BindRouteRuleItemDto[]
+}
+
+/** 规则组分页入参：POST /route/rule/column；alias 模糊匹配路由别名，status 精确匹配规则组状态。 */
+export class ListRouteRuleDto extends IntersectionType(PageDto, PartialType(PickType(Schema.TbSrmRouteRuleDto, ['status'] as const))) {
+    @ApiProperty({ description: '路由别名：模糊匹配', required: false, example: 'LSK1002001' })
+    @IsOptional()
+    @IsString({ message: '路由别名必须是字符串' })
+    @MaxLength(64, { message: '路由别名长度不能超过64位' })
+    alias?: string
+}
+
+/** 规则组条件中的方向名称。 */
+export class RouteRuleCountryOptionDto {
+    @ApiProperty({ description: '国家/地区主键', example: 1007 })
+    keyId: number
+
+    @ApiProperty({ description: '国家/地区中文名', example: '中国' })
+    cnName: string
+}
+
+/** 规则组列表项：规则组字段展开，附带所属路由和条件中的方向名称。 */
+export class RouteRuleColumnResponseDto extends Schema.TbSrmRouteRuleDto {
+    @ApiProperty({ description: '所属路由', required: false, type: Schema.TbSrmRouteDto })
+    routeOptions?: Schema.TbSrmRoute
+
+    @ApiProperty({ description: '条件中的方向名称', type: [RouteRuleCountryOptionDto] })
+    countryOptions: RouteRuleCountryOptionDto[]
+}
+
+/** 规则组分页响应：POST /route/rule/column。 */
+export class RouteRulePageResponseDto extends PageResponseDataDto {
+    @ApiProperty({ description: '规则组列表', type: [RouteRuleColumnResponseDto] })
+    list: RouteRuleColumnResponseDto[]
 }
 
 /* ------------------------------ 路由通道 ------------------------------ */

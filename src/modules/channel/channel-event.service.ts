@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common'
 import { InjectRepository, Repository } from '@wlisfes/chat-web-base-schema/database'
 import { RabbitmqService } from '@wlisfes/chat-web-base-schema/rabbitmq'
+import { ConfigService } from '@nestjs/config'
 import * as constants from '@/modules/channel/channel-event.constants'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 
@@ -19,11 +20,14 @@ export class ChannelEventService implements OnApplicationBootstrap {
 
     constructor(
         @InjectRepository(Schema.TbSrmChannel) private readonly repository: Repository<Schema.TbSrmChannel>,
-        private readonly rabbitmqService: RabbitmqService
+        private readonly rabbitmqService: RabbitmqService,
+        private readonly configService: ConfigService
     ) {}
 
     public async onApplicationBootstrap(): Promise<void> {
-        await this.republish()
+        if (this.configService.get('NODE_ENV') !== 'development') {
+            await this.republish()
+        }
     }
 
     /** 发布一份全量快照，不往事件队列逐条补发。 */
@@ -50,7 +54,7 @@ export class ChannelEventService implements OnApplicationBootstrap {
             channels: channels.map(channel => this.eventOf(channel, false, version))
         }
         await this.rabbitmqService.publish(constants.SMS_EXCHANGE, constants.SMS_CHANNEL_SNAPSHOT_ROUTING_KEY, snapshot)
-        return this.logger.log(`通道快照已发布：${channels.map(item => item.alias).join('、')}`)
+        return this.logger.log(`发布通道快照[${channels.length}]：${channels.map(item => item.alias).join('、')}`)
     }
 
     /** 发布通道当前状态；deleted 为 true 表示通道已删除。 */

@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { PageResult, fetchResolver, fetchUntiePagination, isNotEmpty } from '@wlisfes/chat-web-base-schema/utils'
-import { DataBaseService, In, InjectRepository, Repository } from '@wlisfes/chat-web-base-schema/database'
+import { PageResult, fetchResolver, fetchUntiePagination, fetchVagueKeyword, isNotEmpty } from '@wlisfes/chat-web-base-schema/utils'
+import { DataBaseService, In, InjectRepository, Repository, Like } from '@wlisfes/chat-web-base-schema/database'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { RouteUtilsService } from '@/modules/route/route.utils.service'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
@@ -133,7 +133,46 @@ export class RouteService {
         })
     }
 
-    /* ------------------------------ 规则组 ------------------------------ */
+    /** 规则组分页：按路由别名和规则组状态筛选，按路由、规则排序返回，并附带所属路由和方向名称。 */
+    public async httpBaseSrmColumnRouteRule(input: RouteDto.ListRouteRuleDto): Promise<PageResult<RouteDto.RouteRuleColumnResponseDto>> {
+        const { page, size } = fetchUntiePagination(input)
+        const alias = fetchVagueKeyword(input.alias)
+        return this.database.builder(this.repository.manager.getRepository(Schema.TbSrmRouteRule), async qb => {
+            qb.innerJoin(Schema.TbSrmRoute, 'route', 'route.keyId = t.routeKeyId')
+            if (isNotEmpty(alias)) {
+                qb.andWhere('route.alias LIKE :alias', { alias: `%${alias}%` })
+            }
+            if (isNotEmpty(input.status)) {
+                qb.andWhere('t.status = :status', { status: input.status })
+            }
+            qb.orderBy('t.routeKeyId', 'ASC')
+            qb.addOrderBy('t.sort', 'ASC')
+            qb.addOrderBy('t.keyId', 'ASC')
+            qb.skip((page - 1) * size).take(size)
+            return await qb.getManyAndCount().then(async ([list, total]) => {
+                const routeKeyIds = [...new Set(list.map(item => item.routeKeyId))]
+                const countryKeyIds = list.flatMap(item => this.routeUtilsService.findRuleCountryKeyIds(item))
+                const [routes, countryNames] = await Promise.all([
+                    this.routeUtilsService.findRoutes(routeKeyIds),
+                    this.routeUtilsService.findCountryNames(countryKeyIds)
+                ])
+                const routeOptions = new Map(routes.map(route => [route.keyId, route]))
+                return fetchResolver({
+                    page,
+                    size,
+                    total,
+                    list: list.map(item => ({
+                        ...item,
+                        routeOptions: routeOptions.get(item.routeKeyId),
+                        countryOptions: this.routeUtilsService
+                            .findRuleCountryKeyIds(item)
+                            .filter(keyId => countryNames.has(keyId))
+                            .map(keyId => ({ keyId, cnName: countryNames.get(keyId) }))
+                    }))
+                })
+            })
+        })
+    }
 
     /**
      * 更新路由规则绑定：以本次提交的规则组列表为准配置规则。
