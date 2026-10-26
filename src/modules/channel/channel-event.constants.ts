@@ -14,6 +14,17 @@ export const SMS_CHANNEL_EVENT_ROUTING_KEY = 'sms.channel.event'
 export const SMS_CHANNEL_SNAPSHOT_QUEUE = 'chat.sms.channel.snapshot'
 export const SMS_CHANNEL_SNAPSHOT_ROUTING_KEY = 'sms.channel.snapshot'
 
+/**
+ * 选路配置变更广播：路由、规则组、路由通道、应用绑定、通道变更提交后发布，每个 Channel 实例收到后重新加载选路缓存。
+ * SRM 和 Channel 各声明一份，名称改动时要同步。
+ */
+export const SMS_ROUTE_CONFIG_EXCHANGE = 'chat.sms.route.config.exchange'
+
+/** 选路配置变更消息：只带版本号（发布时间毫秒数），不带数据。 */
+export interface RouteConfigChangedPayload {
+    version: number
+}
+
 /** 通道队列名称。通道别名全表唯一且创建后不可修改。 */
 export function smsChannelQueue(alias: string): string {
     return `chat.sms.channel.${alias}`

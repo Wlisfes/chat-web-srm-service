@@ -3,6 +3,7 @@ import { DataBaseService, In, InjectRepository, Repository } from '@wlisfes/chat
 import { PageResult, fetchResolver, fetchUntiePagination, isNotEmpty } from '@wlisfes/chat-web-base-schema/utils'
 import { ChannelEventService } from '@/modules/channel/channel-event.service'
 import { ChannelUtilsService } from '@/modules/channel/channel.utils.service'
+import { RouteConfigEventService } from '@/modules/route/route-config-event.service'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { ConfigService } from '@nestjs/config'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
@@ -17,13 +18,15 @@ export class ChannelService {
         private readonly skylineFeignClient: feign.FeignClientSkylineManager,
         private readonly configService: ConfigService,
         private readonly channelUtilsService: ChannelUtilsService,
-        private readonly channelEventService: ChannelEventService
+        private readonly channelEventService: ChannelEventService,
+        private readonly routeConfigEventService: RouteConfigEventService
     ) {}
 
+    /** 发布通道事件；通道的启停、类型、方向会影响选路，同时广播选路配置变更。 */
     private async fetchChannelPublish(channel: Schema.TbSrmChannel, deleted?: boolean): Promise<Schema.TbSrmChannel> {
-        return await this.channelEventService.publish(channel, deleted).then(() => {
-            return channel
-        })
+        await this.channelEventService.publish(channel, deleted)
+        await this.routeConfigEventService.publish(`通道变更：${channel.alias}`)
+        return channel
     }
 
     /** 通道静态枚举。 */
