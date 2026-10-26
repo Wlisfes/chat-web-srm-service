@@ -180,7 +180,8 @@ export class SimbankService {
         return {
             statusOptions: Schema.TbSrmSimbankPortStatusDefinition.options,
             activateStatusOptions: Schema.TbSrmSimbankPortActivateStatusDefinition.options,
-            insertStatusOptions: Schema.TbSrmSimbankPortInsertStatusDefinition.options
+            insertStatusOptions: Schema.TbSrmSimbankPortInsertStatusDefinition.options,
+            onlineOptions: Schema.TbSrmSimbankPortOnlineDefinition.options
         }
     }
 
@@ -231,6 +232,9 @@ export class SimbankService {
             }
             if (isNotEmpty(input.status)) {
                 qb.andWhere('t.status = :status', { status: input.status })
+            }
+            if (isNotEmpty(input.online)) {
+                qb.andWhere('t.online = :online', { online: input.online })
             }
             if (keyword) {
                 const clauses = ['t.sim LIKE :simKeyword', 't.iccid LIKE :keyword', 't.imei LIKE :keyword']

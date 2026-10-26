@@ -91,7 +91,7 @@ class SimbankPortKeywordDto {
 export class ListSimbankPortDto extends IntersectionType(
     PageDto,
     PartialType(PickType(Schema.TbSrmSimbankPortDto, ['simbankKeyId', 'countryKeyId'] as const)),
-    PartialType(PickType(Schema.TbSrmSimbankPortDto, ['activateStatus', 'insertStatus', 'status'] as const)),
+    PartialType(PickType(Schema.TbSrmSimbankPortDto, ['activateStatus', 'insertStatus', 'status', 'online'] as const)),
     SimbankPortKeywordDto
 ) {}
 
@@ -102,7 +102,8 @@ export class UpdateSimbankPortStatusDto extends PickType(Schema.TbSrmSimbankPort
 export class SimbankPortEnumsResponseDto extends EnumsResponseDto({
     statusOptions: { description: '端口状态选项', example: Schema.TbSrmSimbankPortStatusDefinition.options },
     activateStatusOptions: { description: '激活状态选项', example: Schema.TbSrmSimbankPortActivateStatusDefinition.options },
-    insertStatusOptions: { description: '插卡状态选项', example: Schema.TbSrmSimbankPortInsertStatusDefinition.options }
+    insertStatusOptions: { description: '插卡状态选项', example: Schema.TbSrmSimbankPortInsertStatusDefinition.options },
+    onlineOptions: { description: '在线状态选项', example: Schema.TbSrmSimbankPortOnlineDefinition.options }
 }) {}
 
 /** 端口所属设备摘要。 */
