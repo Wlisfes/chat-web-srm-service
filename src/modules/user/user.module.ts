@@ -5,11 +5,12 @@ import { FeignClientSkylineManager, FeignModule } from '@wlisfes/chat-web-base-s
 import { UserController } from '@/modules/user/user.controller'
 import { UserService } from '@/modules/user/user.service'
 import { UserUtilsService } from '@/modules/user/user.utils.service'
+import { RouteConfigEventService } from '@/modules/route/route-config-event.service'
 
 @Module({
     imports: [TypeOrmModule.forFeature([TbSrmUser, TbSrmUserConfig, TbSrmUserContact]), FeignModule.register([FeignClientSkylineManager])],
     controllers: [UserController],
-    providers: [UserService, UserUtilsService],
+    providers: [UserService, UserUtilsService, RouteConfigEventService],
     exports: [UserService, UserUtilsService]
 })
 export class UserModule {}

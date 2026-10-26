@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { UserUtilsService } from '@/modules/user/user.utils.service'
+import { RouteConfigEventService } from '@/modules/route/route-config-event.service'
 import { InjectRepository, DataBaseService, Repository } from '@wlisfes/chat-web-base-schema/database'
 import { PageResult, isNotEmpty, fetchResolver, fetchUntiePagination } from '@wlisfes/chat-web-base-schema/utils'
 import * as UserDto from '@/modules/user/dto/user.dto'
@@ -16,7 +17,8 @@ export class UserService {
         private readonly database: DataBaseService,
         private readonly userUtilsService: UserUtilsService,
         private readonly skylineFeignClient: feign.FeignClientSkylineManager,
-        private readonly configService: ConfigService
+        private readonly configService: ConfigService,
+        private readonly routeConfigEventService: RouteConfigEventService
     ) {}
 
     /** 供应商静态枚举。 */
@@ -41,7 +43,7 @@ export class UserService {
 
     /** 编辑 SRM 供应商。 */
     public async httpBaseSrmUpdateUser(input: UserDto.UpdateUserDto): Promise<Schema.TbSrmUser> {
-        return this.repository.manager.transaction(async manager => {
+        const result = await this.repository.manager.transaction(async manager => {
             const user = await this.userUtilsService.findRequired(input.keyId, manager)
             manager.merge(Schema.TbSrmUser, user, {
                 name: input.name,
@@ -53,15 +55,19 @@ export class UserService {
             })
             return await manager.save(user)
         })
+        await this.routeConfigEventService.publish(`供应商变更：keyId=${input.keyId}`)
+        return result
     }
 
     /** 更新 SRM 供应商状态。 */
     public async httpBaseSrmUserStatusUpdate(input: UserDto.UpdateUserStatusDto): Promise<Schema.TbSrmUser> {
-        return this.repository.manager.transaction(async manager => {
+        const result = await this.repository.manager.transaction(async manager => {
             const user = await this.userUtilsService.findRequired(input.keyId, manager)
             user.status = input.status
             return await manager.save(user)
         })
+        await this.routeConfigEventService.publish(`供应商状态变更：keyId=${input.keyId}`)
+        return result
     }
 
     /** 分页查询 SRM 供应商，归属人通过账号 Feign 还原为 ownerUserUidOptions（含所属组织）。 */

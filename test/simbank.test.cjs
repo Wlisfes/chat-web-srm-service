@@ -4,6 +4,11 @@ const { plainToInstance } = require('class-transformer')
 const { validate } = require('class-validator')
 const { SimbankUtilsService } = require('../dist/modules/simbank/simbank.utils.service')
 const { SimbankService } = require('../dist/modules/simbank/simbank.service')
+
+/** 测试中注入完整依赖；第 6 个参数是选路和发送配置变更广播。 */
+function createSimbankService(repository = {}, database = {}, utils = {}, portRepository = {}, messageRepository = {}) {
+    return new SimbankService(repository, database, utils, portRepository, messageRepository, { publish: async () => undefined })
+}
 const SimbankDto = require('../dist/modules/simbank/dto/simbank.dto')
 
 const principal = { uid: '30001' }
@@ -78,7 +83,7 @@ test('新增设备在命名锁内生成别名，写入端口数并同步创建�
         fetchCheckUser: async keyId => calls.push(['user', keyId]),
         fetchCheckUnique: async (_manager, input) => calls.push(['unique', input])
     }
-    const service = new SimbankService({}, database, simbankUtilsService)
+    const service = createSimbankService({}, database, simbankUtilsService)
     const result = await service.httpBaseSrmCreateSimbank(
         { uid: '30001', number: '1233' },
         { name: ' SIMBANK-01 ', model: 1024317, mac: 'aa:bb:cc:dd:ee:ff', userKeyId: 10241000, alias: 'IGNORED' }
@@ -148,7 +153,7 @@ test('编辑设备只更新设备名称、设备状态', async () => {
         save: async value => value
     }
     const repository = { manager: { transaction: async callback => callback(manager) } }
-    const service = new SimbankService(repository, {}, { findRequired: async () => simbank })
+    const service = createSimbankService(repository, {}, { findRequired: async () => simbank })
     const result = await service.httpBaseSrmUpdateSimbank(
         { uid: '30002' },
         { keyId: 100201, name: ' NEW ', status: 'disable', model: 1, mac: 'BB:BB:BB:BB:BB:BB', userKeyId: 1 }
@@ -184,7 +189,7 @@ test('端口分页没有匹配供应商设备时直接返回空列表', async ()
             return callback(qb)
         }
     }
-    const service = new SimbankService('device-repo', database, {}, 'port-repo')
+    const service = createSimbankService('device-repo', database, {}, 'port-repo')
     const result = await service.httpBaseSrmColumnSimbankPort({ page: 1, size: 20, userKeyId: 9 })
     assert.deepEqual(calls, ['device-repo'])
     assert.equal(result.total, 0)
@@ -211,7 +216,7 @@ test('端口分页关键词同时匹配卡号和设备，并还原所属设备',
             return callback(qb)
         }
     }
-    const service = new SimbankService(
+    const service = createSimbankService(
         'device',
         database,
         {
@@ -241,7 +246,8 @@ test('更新端口状态写入修改人，端口不存在时拒绝', async () =>
         manager: { transaction: async callback => callback({ findOneBy: async () => null, save: async value => value }) }
     }
     await assert.rejects(
-        () => new SimbankService({}, {}, {}, missing).httpBaseSrmSimbankPortStatusUpdate({ uid: '30001' }, { keyId: 1, status: 'disable' }),
+        () =>
+            createSimbankService({}, {}, {}, missing).httpBaseSrmSimbankPortStatusUpdate({ uid: '30001' }, { keyId: 1, status: 'disable' }),
         /端口不存在/
     )
     const port = { keyId: 1, status: 'enable', modifyBy: '1' }
@@ -257,7 +263,7 @@ test('更新端口状态写入修改人，端口不存在时拒绝', async () =>
                 })
         }
     }
-    const result = await new SimbankService({}, {}, {}, found).httpBaseSrmSimbankPortStatusUpdate(
+    const result = await createSimbankService({}, {}, {}, found).httpBaseSrmSimbankPortStatusUpdate(
         { uid: '30001' },
         { keyId: 1, status: 'disable' }
     )
@@ -291,7 +297,7 @@ test('插入 SIM 卡必须已激活且卡号属于激活方向', async () => {
     }
     await assert.rejects(
         () =>
-            new SimbankService({}, {}, utils, {
+            createSimbankService({}, {}, utils, {
                 manager: {
                     transaction: async callback =>
                         callback({ findOneBy: async () => ({ keyId: 1, activateStatus: 'inactive' }), save: async value => value })
@@ -301,7 +307,7 @@ test('插入 SIM 卡必须已激活且卡号属于激活方向', async () => {
     )
     await assert.rejects(
         () =>
-            new SimbankService({}, {}, utils, {
+            createSimbankService({}, {}, utils, {
                 manager: {
                     transaction: async callback =>
                         callback({
@@ -313,7 +319,7 @@ test('插入 SIM 卡必须已激活且卡号属于激活方向', async () => {
         /端口已插入 SIM 卡/
     )
     const port = { keyId: 1, insertStatus: 'removed', activateStatus: 'active', countryKeyId: 86 }
-    const result = await new SimbankService({}, {}, utils, {
+    const result = await createSimbankService({}, {}, utils, {
         manager: {
             transaction: async callback =>
                 callback({
@@ -334,7 +340,7 @@ test('插入 SIM 卡必须已激活且卡号属于激活方向', async () => {
 test('激活不要求先插卡，已激活时拒绝并写入激活方向', async () => {
     await assert.rejects(
         () =>
-            new SimbankService(
+            createSimbankService(
                 {},
                 {},
                 {},
@@ -347,7 +353,7 @@ test('激活不要求先插卡，已激活时拒绝并写入激活方向', async
         /SIM 卡已激活/
     )
     const port = { keyId: 1, insertStatus: 'removed', activateStatus: 'inactive' }
-    const result = await new SimbankService(
+    const result = await createSimbankService(
         {},
         {},
         {},
@@ -366,7 +372,7 @@ test('激活不要求先插卡，已激活时拒绝并写入激活方向', async
 test('拔卡清除卡号但保留激活方向，未插卡时拒绝', async () => {
     await assert.rejects(
         () =>
-            new SimbankService(
+            createSimbankService(
                 {},
                 {},
                 {},
@@ -387,7 +393,7 @@ test('拔卡清除卡号但保留激活方向，未插卡时拒绝', async () =>
         iccid: '89860012345678901234',
         imei: '860000000000000'
     }
-    const result = await new SimbankService(
+    const result = await createSimbankService(
         {},
         {},
         {},
@@ -407,7 +413,7 @@ test('拔卡清除卡号但保留激活方向，未插卡时拒绝', async () =>
 test('释放已激活端口时清除卡号、激活状态和激活方向，已绑定通道的端口需先解绑', async () => {
     await assert.rejects(
         () =>
-            new SimbankService(
+            createSimbankService(
                 {},
                 {},
                 {},
@@ -428,7 +434,7 @@ test('释放已激活端口时清除卡号、激活状态和激活方向，已�
         iccid: '89860012345678901234',
         imei: '860000000000000'
     }
-    const bound = new SimbankService(
+    const bound = createSimbankService(
         {},
         {},
         {},
@@ -437,7 +443,7 @@ test('释放已激活端口时清除卡号、激活状态和激活方向，已�
         }
     ).httpBaseSrmSimbankPortRelease({ uid: '30001' }, { keyId: 1 })
     await assert.rejects(() => bound, /端口已绑定短信通道，请先解绑/)
-    const result = await new SimbankService(
+    const result = await createSimbankService(
         {},
         {},
         {},
@@ -468,7 +474,7 @@ test('插卡模拟数据按激活方向 countryKeyId 查询 Skyline 国际区号
     const utils = new SimbankUtilsService({}, {}, {}, skylineFeignClient, { get: () => 'service-token' })
     assert.equal(await utils.fetchCountryDialCode(1077), '86')
     assert.deepEqual(calls[0], { authorization: 'Bearer service-token', input: { keyId: 1077 } })
-    const result = await new SimbankService({}, {}, utils, {}).httpBaseSrmSimbankPortFaker({ countryKeyId: 1077 })
+    const result = await createSimbankService({}, {}, utils, {}).httpBaseSrmSimbankPortFaker({ countryKeyId: 1077 })
     assert.match(result.sim, /^86[0-9]{6,12}$/)
     assert.match(result.iccid, /^8986[0-9]+$/)
 })
@@ -505,7 +511,7 @@ test('短信历史分页按条件过滤，号码关键字去掉开头的 + 号',
             return callback(qb)
         }
     }
-    const service = new SimbankService(
+    const service = createSimbankService(
         {},
         database,
         {},
@@ -541,7 +547,7 @@ test('按方向和归属人查询可绑定端口：不分页，附带设备，�
     }
     const database = { builder: async (_repository, callback) => callback(qb), selection: async () => qb }
     const simbank = { keyId: 100202, alias: 'SSK1233SMSA002', name: '昊天科技-澜沧' }
-    const service = new SimbankService(
+    const service = createSimbankService(
         {},
         database,
         {
@@ -557,7 +563,7 @@ test('按方向和归属人查询可绑定端口：不分页，附带设备，�
 })
 
 test('归属人名下没有设备时直接返回空列表', async () => {
-    const service = new SimbankService(
+    const service = createSimbankService(
         {},
         { builder: async () => assert.fail('不应查询端口') },
         { findByOwnerUserUid: async () => ({ simbanks: [], simbankOptions: new Map() }) },

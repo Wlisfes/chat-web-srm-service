@@ -7,6 +7,7 @@ import { SimbankQuoteUtilsService } from '@/modules/quote/quote.utils.service'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { SimbankUtilsService } from '@/modules/simbank/simbank.utils.service'
 import { UserUtilsService } from '@/modules/user/user.utils.service'
+import { RouteConfigEventService } from '@/modules/route/route-config-event.service'
 import { ConfigService } from '@nestjs/config'
 import { randomUUID } from 'node:crypto'
 import * as SimbankQuoteDto from '@/modules/quote/dto/quote.dto'
@@ -27,7 +28,8 @@ export class SimbankQuoteService {
         private readonly simbankUtilsService: SimbankUtilsService,
         private readonly simbankQuoteUtilsService: SimbankQuoteUtilsService,
         private readonly financeClient: FeignClientFinanceManager,
-        private readonly configService: ConfigService
+        private readonly configService: ConfigService,
+        private readonly routeConfigEventService: RouteConfigEventService
     ) {}
 
     /**simbank 报价静态枚举。*/
@@ -298,6 +300,7 @@ export class SimbankQuoteService {
             // 发布成功后草稿已转为正式报价，直接物理删除该批次草稿。
             await manager.getRepository(Schema.TbSrmSimbankQuoteDraft).delete({ draftBatchId: body.draftBatchId })
             await queryRunner.commitTransaction()
+            await this.routeConfigEventService.publish(`simbank 报价发布：draftBatchId=${body.draftBatchId}`)
             return { draftBatchId: body.draftBatchId, published: quotes.length }
         } catch (error) {
             if (queryRunner.isTransactionActive) {

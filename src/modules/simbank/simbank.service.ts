@@ -3,6 +3,7 @@ import { InjectRepository, DataBaseService, Repository } from '@wlisfes/chat-web
 import { PageResult, isNotEmpty, fetchResolver, fetchUntiePagination, fetchVagueKeyword } from '@wlisfes/chat-web-base-schema/utils'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { SimbankUtilsService } from '@/modules/simbank/simbank.utils.service'
+import { RouteConfigEventService } from '@/modules/route/route-config-event.service'
 import * as SimbankDto from '@/modules/simbank/dto/simbank.dto'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 
@@ -13,7 +14,8 @@ export class SimbankService {
         private readonly database: DataBaseService,
         private readonly simbankUtilsService: SimbankUtilsService,
         @InjectRepository(Schema.TbSrmSimbankPort) private readonly portRepository: Repository<Schema.TbSrmSimbankPort>,
-        @InjectRepository(Schema.TbSrmSimbankMessage) private readonly messageRepository: Repository<Schema.TbSrmSimbankMessage>
+        @InjectRepository(Schema.TbSrmSimbankMessage) private readonly messageRepository: Repository<Schema.TbSrmSimbankMessage>,
+        private readonly routeConfigEventService: RouteConfigEventService
     ) {}
 
     /** 设备静态枚举。 */
@@ -87,7 +89,7 @@ export class SimbankService {
 
     /** 编辑设备：仅支持修改设备名称、设备状态；型号、MAC、端口数、归属信息创建后不可修改，在线状态由设备上报维护。 */
     public async httpBaseSrmUpdateSimbank(principal: AuthPrincipal, input: SimbankDto.UpdateSimbankDto): Promise<Schema.TbSrmSimbank> {
-        return this.repository.manager.transaction(async manager => {
+        const result = await this.repository.manager.transaction(async manager => {
             const simbank = await this.simbankUtilsService.findRequired(input.keyId, manager)
             manager.merge(Schema.TbSrmSimbank, simbank, {
                 name: input.name.trim(),
@@ -96,6 +98,8 @@ export class SimbankService {
             })
             return await manager.save(simbank)
         })
+        await this.routeConfigEventService.publish(`设备变更：keyId=${input.keyId}`)
+        return result
     }
 
     /** 更新设备启用、停用状态。 */
@@ -103,12 +107,14 @@ export class SimbankService {
         principal: AuthPrincipal,
         input: SimbankDto.UpdateSimbankStatusDto
     ): Promise<Schema.TbSrmSimbank> {
-        return this.repository.manager.transaction(async manager => {
+        const result = await this.repository.manager.transaction(async manager => {
             const simbank = await this.simbankUtilsService.findRequired(input.keyId, manager)
             simbank.status = input.status
             simbank.modifyBy = principal.uid
             return await manager.save(simbank)
         })
+        await this.routeConfigEventService.publish(`设备状态变更：keyId=${input.keyId}`)
+        return result
     }
 
     /** 分页查询设备，按创建时间倒序；归属供应商、归属人、创建人、更新人统一还原为 *Options。 */
@@ -174,7 +180,8 @@ export class SimbankService {
         return {
             statusOptions: Schema.TbSrmSimbankPortStatusDefinition.options,
             activateStatusOptions: Schema.TbSrmSimbankPortActivateStatusDefinition.options,
-            insertStatusOptions: Schema.TbSrmSimbankPortInsertStatusDefinition.options
+            insertStatusOptions: Schema.TbSrmSimbankPortInsertStatusDefinition.options,
+            onlineOptions: Schema.TbSrmSimbankPortOnlineDefinition.options
         }
     }
 
@@ -183,7 +190,7 @@ export class SimbankService {
         principal: AuthPrincipal,
         input: SimbankDto.UpdateSimbankPortStatusDto
     ): Promise<Schema.TbSrmSimbankPort> {
-        return this.portRepository.manager.transaction(async manager => {
+        const result = await this.portRepository.manager.transaction(async manager => {
             const port = await manager.findOneBy(Schema.TbSrmSimbankPort, { keyId: input.keyId })
             if (!port) {
                 throw new NotFoundException('端口不存在')
@@ -192,6 +199,8 @@ export class SimbankService {
             port.modifyBy = principal.uid
             return await manager.save(port)
         })
+        await this.routeConfigEventService.publish(`端口状态变更：keyId=${input.keyId}`)
+        return result
     }
 
     /** 分页查询端口。关键词匹配卡号和设备信息；归属供应商通过所属设备过滤。 */
@@ -223,6 +232,9 @@ export class SimbankService {
             }
             if (isNotEmpty(input.status)) {
                 qb.andWhere('t.status = :status', { status: input.status })
+            }
+            if (isNotEmpty(input.online)) {
+                qb.andWhere('t.online = :online', { online: input.online })
             }
             if (keyword) {
                 const clauses = ['t.sim LIKE :simKeyword', 't.iccid LIKE :keyword', 't.imei LIKE :keyword']
@@ -354,7 +366,7 @@ export class SimbankService {
         principal: AuthPrincipal,
         input: SimbankDto.InsertSimbankPortDto
     ): Promise<Schema.TbSrmSimbankPort> {
-        return this.portRepository.manager.transaction(async manager => {
+        const result = await this.portRepository.manager.transaction(async manager => {
             const port = await this.findPortRequired(manager, input.keyId)
             if (port.activateStatus !== Schema.TbSrmSimbankPortActivateStatus.ACTIVE || !port.countryKeyId) {
                 throw new BadRequestException('请先激活并选择激活方向')
@@ -377,6 +389,8 @@ export class SimbankService {
             port.modifyBy = principal.uid
             return await manager.save(port)
         })
+        await this.routeConfigEventService.publish(`端口插卡：keyId=${input.keyId}`)
+        return result
     }
 
     /** 先选择激活方向。未插卡也可以激活，后续插卡必须使用该方向的国际区号。 */
@@ -384,7 +398,7 @@ export class SimbankService {
         principal: AuthPrincipal,
         input: SimbankDto.ActivateSimbankPortDto
     ): Promise<Schema.TbSrmSimbankPort> {
-        return this.portRepository.manager.transaction(async manager => {
+        const result = await this.portRepository.manager.transaction(async manager => {
             const port = await this.findPortRequired(manager, input.keyId)
             if (port.activateStatus === Schema.TbSrmSimbankPortActivateStatus.ACTIVE) {
                 throw new ConflictException('SIM 卡已激活')
@@ -394,6 +408,8 @@ export class SimbankService {
             port.modifyBy = principal.uid
             return await manager.save(port)
         })
+        await this.routeConfigEventService.publish(`端口激活：keyId=${input.keyId}`)
+        return result
     }
 
     /** 拔卡：清除 SIM、ICCID、IMEI，保留激活方向。 */
@@ -401,7 +417,7 @@ export class SimbankService {
         principal: AuthPrincipal,
         input: SimbankDto.SimbankPortKeyDto
     ): Promise<Schema.TbSrmSimbankPort> {
-        return this.portRepository.manager.transaction(async manager => {
+        const result = await this.portRepository.manager.transaction(async manager => {
             const port = await this.findPortRequired(manager, input.keyId)
             if (port.insertStatus !== Schema.TbSrmSimbankPortInsertStatus.INSERTED) {
                 throw new BadRequestException('端口未插入 SIM 卡')
@@ -409,6 +425,8 @@ export class SimbankService {
             this.clearPortCard(port, principal.uid, false)
             return await manager.save(port)
         })
+        await this.routeConfigEventService.publish(`端口拔卡：keyId=${input.keyId}`)
+        return result
     }
 
     /** 释放已激活端口：清除卡号、激活状态和激活方向；已绑定通道的端口需先解绑。 */
@@ -416,7 +434,7 @@ export class SimbankService {
         principal: AuthPrincipal,
         input: SimbankDto.SimbankPortKeyDto
     ): Promise<Schema.TbSrmSimbankPort> {
-        return this.portRepository.manager.transaction(async manager => {
+        const result = await this.portRepository.manager.transaction(async manager => {
             const port = await this.findPortRequired(manager, input.keyId)
             if (port.activateStatus !== Schema.TbSrmSimbankPortActivateStatus.ACTIVE) {
                 throw new BadRequestException('端口未激活')
@@ -428,6 +446,8 @@ export class SimbankService {
             this.clearPortCard(port, principal.uid, true)
             return await manager.save(port)
         })
+        await this.routeConfigEventService.publish(`端口释放：keyId=${input.keyId}`)
+        return result
     }
 
     /** 清除端口上的 SIM 卡信息。释放时同时清除激活状态和激活方向。 */
