@@ -3,10 +3,10 @@ import { RabbitmqService } from '@wlisfes/chat-web-base-schema/rabbitmq'
 import * as constants from '@/modules/channel/channel-event.constants'
 
 /**
- * 选路配置变更广播。
+ * 选路和发送配置变更广播。
  *
- * - 路由、规则组、路由通道、应用绑定、通道变更提交数据库后调用 publish；
- * - 消息只带版本号，Channel 收到后整体重新加载选路缓存；
+ * - 路由、规则组、路由通道、应用绑定、通道、端口、设备、供应商和报价变更提交数据库后调用 publish；
+ * - 消息只带版本号，Channel 和 Dispatch 收到后整体重新加载各自缓存；
  * - 发布失败只记录日志，不影响已提交的数据库操作，由 Channel 的定时校对兜底。
  */
 @Injectable()

@@ -15,7 +15,7 @@ export const SMS_CHANNEL_SNAPSHOT_QUEUE = 'chat.sms.channel.snapshot'
 export const SMS_CHANNEL_SNAPSHOT_ROUTING_KEY = 'sms.channel.snapshot'
 
 /**
- * 选路配置变更广播：路由、规则组、路由通道、应用绑定、通道变更提交后发布，每个 Channel 实例收到后重新加载选路缓存。
+ * 选路和发送配置变更广播：路由、规则组、路由通道、应用绑定、通道、端口、设备、供应商和报价变更提交后发布，Channel 和 Dispatch 实例收到后重新加载缓存。
  * SRM 和 Channel 各声明一份，名称改动时要同步。
  */
 export const SMS_ROUTE_CONFIG_EXCHANGE = 'chat.sms.route.config.exchange'

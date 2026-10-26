@@ -188,7 +188,7 @@ export class ChannelService {
      * 端口必须存在、已激活且激活方向与通道方向一致；已绑定到其他通道的端口会被拒绝。
      */
     public async httpBaseSrmBindChannelPort(principal: AuthPrincipal, input: ChannelDto.BindChannelPortDto): Promise<{ count: number }> {
-        return this.repository.manager.transaction(async manager => {
+        const result = await this.repository.manager.transaction(async manager => {
             const channel = await this.channelUtilsService.findChannelRequired(manager, input.channelKeyId)
             const items = input.list
             const portKeyIds = items.map(item => item.portKeyId)
@@ -278,5 +278,7 @@ export class ChannelService {
             }
             return { count: items.length }
         })
+        await this.routeConfigEventService.publish(`通道端口变更：channelKeyId=${input.channelKeyId}`)
+        return result
     }
 }
