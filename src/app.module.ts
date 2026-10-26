@@ -12,6 +12,7 @@ import { SimbankModule } from '@/modules/simbank/simbank.module'
 import { ChannelModule } from '@/modules/channel/channel.module'
 import { DatabaseModule } from '@/database/database.module'
 import { RouteModule } from '@/modules/route/route.module'
+import { SimbankQuoteModule } from '@/modules/quote/quote.module'
 import { UserModule } from '@/modules/user/user.module'
 import { HealthModule } from '@/health/health.module'
 import { FeignModule } from '@/feign/feign.module'
@@ -33,6 +34,7 @@ import { AppService } from '@/app.service'
         SimbankModule,
         ChannelModule,
         RouteModule,
+        SimbankQuoteModule,
         FeignModule
     ],
     controllers: [AppController],

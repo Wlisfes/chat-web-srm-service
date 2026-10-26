@@ -8,6 +8,8 @@ import {
     TbSrmSimbank,
     TbSrmSimbankMessage,
     TbSrmSimbankPort,
+    TbSrmSimbankQuote,
+    TbSrmSimbankQuoteDraft,
     TbSrmUser,
     TbSrmUserConfig,
     TbSrmUserContact
@@ -22,6 +24,8 @@ export const SRM_MYSQL_ENTITIES = [
     TbSrmSimbank,
     TbSrmSimbankPort,
     TbSrmSimbankMessage,
+    TbSrmSimbankQuote,
+    TbSrmSimbankQuoteDraft,
     TbSrmChannel,
     TbSrmChannelPort,
     TbSrmRoute,
