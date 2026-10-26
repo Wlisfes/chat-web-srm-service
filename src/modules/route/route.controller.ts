@@ -88,4 +88,13 @@ export class RouteController {
     public async httpBaseSrmBindRouteRule(@CurrentPrincipal() principal: AuthPrincipal, @Body() input: RouteDto.BindRouteRuleDto) {
         return this.routeService.httpBaseSrmBindRouteRule(principal, input)
     }
+
+    @ApiServiceDecorator(Post('rule/column'), {
+        operation: { summary: '分页查询规则组' },
+        request: { source: 'body', type: RouteDto.ListRouteRuleDto },
+        response: { type: RouteDto.RouteRulePageResponseDto, description: '规则组分页数据（含所属路由）' }
+    })
+    public async httpBaseSrmColumnRouteRule(@Body() input: RouteDto.ListRouteRuleDto) {
+        return this.routeService.httpBaseSrmColumnRouteRule(input)
+    }
 }
