@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { UserUtilsService } from '@/modules/user/user.utils.service'
+import { UserBalanceService } from '@/modules/user/user.balance.service'
 import { RouteConfigEventService } from '@/modules/route/route-config-event.service'
 import { InjectRepository, DataBaseService, Repository } from '@wlisfes/chat-web-base-schema/database'
 import { PageResult, isNotEmpty, fetchResolver, fetchUntiePagination } from '@wlisfes/chat-web-base-schema/utils'
@@ -18,7 +19,8 @@ export class UserService {
         private readonly userUtilsService: UserUtilsService,
         private readonly skylineFeignClient: feign.FeignClientSkylineManager,
         private readonly configService: ConfigService,
-        private readonly routeConfigEventService: RouteConfigEventService
+        private readonly routeConfigEventService: RouteConfigEventService,
+        private readonly userBalanceService: UserBalanceService
     ) {}
 
     /** 供应商静态枚举。 */
@@ -70,7 +72,7 @@ export class UserService {
         return result
     }
 
-    /** 分页查询 SRM 供应商，归属人通过账号 Feign 还原为 ownerUserUidOptions（含所属组织）。 */
+    /** 分页查询 SRM 供应商，归属人通过账号 Feign 还原为 ownerUserUidOptions（含所属组织），余额来自 Finance 供应商账户。 */
     public async httpBaseSrmColumnUser(input: UserDto.ListUserDto): Promise<PageResult<UserDto.UserColumnResponseDto>> {
         const { page, size } = fetchUntiePagination(input)
         return this.database.builder(this.repository, async qb => {
@@ -93,10 +95,13 @@ export class UserService {
             qb.skip((page - 1) * size)
             qb.take(size)
             return await qb.getManyAndCount().then(async ([list, total]) => {
-                await feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, list, ['ownerUserUid'], {
-                    fields: ['organizations']
-                })
-                return fetchResolver({ page, size, total, list })
+                const [, items] = await Promise.all([
+                    feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, list, ['ownerUserUid'], {
+                        fields: ['organizations']
+                    }),
+                    this.userBalanceService.fetchAppendBalance(list)
+                ])
+                return fetchResolver({ page, size, total, list: items })
             })
         })
     }
@@ -104,13 +109,14 @@ export class UserService {
     /** 获取 SRM 供应商详情，归属人通过账号 Feign 还原为 ownerUserUidOptions（含所属组织），并附带供应商配置。 */
     public async httpBaseSrmUserResolver(query: UserDto.ResolveUserDto): Promise<UserDto.UserResolveResponseDto> {
         const user = await this.userUtilsService.findRequired(query.keyId)
-        const [config] = await Promise.all([
+        const [config, , [balanced]] = await Promise.all([
             this.userUtilsService.findConfig(query.keyId),
             feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, [user], ['ownerUserUid'], {
                 fields: ['organizations']
-            })
+            }),
+            this.userBalanceService.fetchAppendBalance([user])
         ])
-        return Object.assign(user, { config })
+        return Object.assign(balanced, { config })
     }
 
     /** 获取供应商配置；供应商不存在时抛出 NotFoundException，未配置时返回默认值。 */
