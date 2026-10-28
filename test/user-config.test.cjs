@@ -146,7 +146,7 @@ test('供应商详情返回供应商配置', async () => {
         }
     }
     const configService = { get: key => (key === 'gateway.feign.service_token' ? 'service-token' : undefined) }
-    const service = new UserService({}, {}, {}, userUtilsService, {}, configService)
+    const service = new UserService({}, {}, {}, userUtilsService, {}, configService, {}, { fetchAppendBalance: async list => list })
     const user = await service.httpBaseSrmUserResolver({ keyId: 10241009 })
     assert.deepEqual(user.config, { userKeyId: 10241009, simbankLimit: 5 })
 })

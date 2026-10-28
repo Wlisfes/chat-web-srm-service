@@ -38,7 +38,16 @@ function createContext(contact) {
             return contact
         }
     }
-    const service = new UserService(repository, contactRepository, {}, userUtilsService, {}, {})
+    const service = new UserService(
+        repository,
+        contactRepository,
+        {},
+        userUtilsService,
+        {},
+        {},
+        {},
+        { fetchAppendBalance: async list => list }
+    )
     return { calls, service }
 }
 
