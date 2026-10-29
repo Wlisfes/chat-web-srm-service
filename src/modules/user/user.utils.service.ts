@@ -19,8 +19,6 @@ const SRM_USER_RESOLVE_LIMIT = 100
 
 /** 供应商列表、详情展示的钱包字段：来自 Finance 供应商钱包。 */
 interface SupplierBalanceFields {
-    /** 财务币种编码。没有钱包时保留供应商资料上的币种；Finance 不可用时也不覆盖。 */
-    currency?: string | null
     /** 余额（放大百万倍存储值）：按钱包币种计；Finance 不可用时为 null。 */
     balance: number | null
     /** 信用额度（放大百万倍存储值）：按钱包币种计；Finance 不可用时为 null。 */
@@ -245,10 +243,6 @@ export class UserUtilsService {
             phone: input.phone,
             status: input.status ?? Schema.TbSrmUserStatus.ENABLE,
             payMode: input.payMode,
-            balance: 0,
-            balanceUsd: 0,
-            credit: 0,
-            creditUsd: 0,
             level: 1,
             stage: Schema.TbSrmUserStage.CLUETRAIL,
             source: input.source ?? constants.SRM_USER_SOURCE_MANUAL,
@@ -263,14 +257,18 @@ export class UserUtilsService {
     public async fetchAppendBalance<T extends { keyId: number }>(list: T[]): Promise<Array<T & SupplierBalanceFields>> {
         const accounts = await this.findAccounts(list.map(item => item.keyId))
         for (const item of list) {
-            const account = (accounts.get(item.keyId) ?? {}) as FinanceSrmUserSummary
-            Object.assign(item, { balance: account.balance ?? 0, credit: account.credit ?? 0 })
+            if (!accounts) {
+                Object.assign(item, { balance: null, credit: null })
+                continue
+            }
+            const account = accounts.get(item.keyId)
+            Object.assign(item, { balance: account?.balance ?? 0, credit: account?.credit ?? 0 })
         }
         return list as Array<T & SupplierBalanceFields>
     }
 
     /** 按 100 个一批查询 Finance；失败时返回 undefined，由调用方展示为空余额。 */
-    private async findAccounts(keyIds: number[]): Promise<Map<number, FinanceSrmUserSummary>> {
+    private async findAccounts(keyIds: number[]): Promise<Map<number, FinanceSrmUserSummary> | undefined> {
         const unique = [...new Set(keyIds)].filter(keyId => Number.isInteger(keyId) && keyId > 0)
         if (unique.length === 0) {
             return new Map()
@@ -286,7 +284,7 @@ export class UserUtilsService {
             return new Map(results.flat().map(account => [account.userKeyId, account]))
         } catch (error) {
             this.logger.warn(`查询 Finance 供应商钱包失败，余额暂不展示：${error instanceof Error ? error.message : String(error)}`)
-            return new Map()
+            return undefined
         }
     }
 }

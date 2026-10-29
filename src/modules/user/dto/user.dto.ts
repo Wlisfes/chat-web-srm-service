@@ -55,7 +55,19 @@ export class UserColumnResponseDto extends Schema.TbSrmUserDto {
     @ApiProperty({ description: '归属人信息（含所属组织 organizations）', required: false, type: feign.SkylineUserOptionResponseDto })
     ownerUserUidOptions?: feign.SkylineUserOptionResponseDto
 
-    /** balance、credit、currency 由 Finance 供应商钱包覆盖；没有钱包时金额为 0，Finance 不可用时金额为 null。 */
+    @ApiProperty({
+        description: '余额（放大百万倍存储值）：来自 Finance 供应商钱包；没有钱包时为 0，Finance 不可用时为 null',
+        example: 0,
+        nullable: true
+    })
+    balance: number | null
+
+    @ApiProperty({
+        description: '信用额度（放大百万倍存储值）：来自 Finance 供应商钱包；没有钱包时为 0，Finance 不可用时为 null',
+        example: 0,
+        nullable: true
+    })
+    credit: number | null
 }
 
 /** 分页查询供应商响应：POST /user/column。 */
