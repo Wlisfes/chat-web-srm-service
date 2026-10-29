@@ -54,7 +54,17 @@ function createContext(config) {
         }
     }
     const database = { builder: async (_repository, callback) => callback(queryBuilder) }
-    return { calls, manager, service: new UserUtilsService(repository, configRepository, database) }
+    const walletCalls = []
+    const finance = {
+        httpBaseFinanceCreateSrmUserWallet: async (_authorization, input) => (walletCalls.push(input), input)
+    }
+    const configService = { get: () => 'service-token' }
+    return {
+        calls,
+        walletCalls,
+        manager,
+        service: new UserUtilsService(repository, configRepository, database, finance, configService)
+    }
 }
 
 test('供应商未配置时返回默认配置', async () => {
@@ -69,11 +79,12 @@ test('供应商已配置时返回配置，事务内查询加写锁', async () =>
 })
 
 test('新增供应商时在同一事务内初始化默认配置并创建联系人', async () => {
-    const { calls, service } = createContext(null)
+    const { calls, walletCalls, service } = createContext(null)
     const contact = { name: '李逸飞', items: [{ type: 1024188, value: 'a@b.com' }], address: '深圳' }
     const user = await service.createUser({
         name: '测试供应商',
         currency: 'USD',
+        payMode: 'prepaid',
         ownerUserUid: '30001',
         ownerUserNumber: '1233',
         contact
@@ -95,6 +106,32 @@ test('新增供应商时在同一事务内初始化默认配置并创建联系�
         createBy: '30001',
         modifyBy: '30001'
     })
+    assert.deepEqual(walletCalls, [{ userKeyId: 10241000, currency: 'USD', payMode: 'prepaid' }])
+})
+
+test('创建钱包失败时删除已写入的供应商', async () => {
+    const { calls, manager, service } = createContext(null)
+    const removed = []
+    manager.delete = async (entity, where) => removed.push({ name: entity.name, where })
+    service.financeFeignClient.httpBaseFinanceCreateSrmUserWallet = async () => {
+        throw new Error('finance down')
+    }
+    await assert.rejects(
+        service.createUser({
+            name: '测试供应商',
+            currency: 'USD',
+            payMode: 'prepaid',
+            ownerUserUid: '30001',
+            ownerUserNumber: '1233',
+            contact: { name: '李逸飞' }
+        }),
+        /创建供应商钱包失败：finance down/
+    )
+    assert.deepEqual(
+        removed.map(item => item.name),
+        ['TbSrmUserContact', 'TbSrmUserConfig', 'TbSrmUser']
+    )
+    assert.equal(calls.filter(([method]) => method === 'save-user').length, 2)
 })
 
 test('新增供应商未填写联系人时拒绝创建', async () => {
@@ -143,10 +180,13 @@ test('供应商详情返回供应商配置', async () => {
         },
         async findConfig(userKeyId) {
             return { userKeyId, simbankLimit: 5 }
+        },
+        async fetchAppendBalance(list) {
+            return list
         }
     }
     const configService = { get: key => (key === 'gateway.feign.service_token' ? 'service-token' : undefined) }
-    const service = new UserService({}, {}, {}, userUtilsService, {}, configService, {}, { fetchAppendBalance: async list => list })
+    const service = new UserService({}, {}, {}, userUtilsService, {}, configService, {})
     const user = await service.httpBaseSrmUserResolver({ keyId: 10241009 })
     assert.deepEqual(user.config, { userKeyId: 10241009, simbankLimit: 5 })
 })

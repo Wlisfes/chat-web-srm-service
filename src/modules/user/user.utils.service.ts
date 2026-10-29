@@ -1,21 +1,43 @@
 import { randomInt } from 'node:crypto'
 import { Faker, en, zh_CN } from '@faker-js/faker'
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { InjectRepository, DataBaseService, EntityManager, In, Repository } from '@wlisfes/chat-web-base-schema/database'
+import {
+    FeignClientFinanceManager,
+    resolveFeignServiceAuthorization,
+    type FinanceSrmUserSummary
+} from '@wlisfes/chat-web-base-schema/feign'
 import { isNotEmpty } from '@wlisfes/chat-web-base-schema/utils'
 import * as constants from '@/modules/user/user.constants'
 import chinaDivision from 'china-division'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 import * as UserDto from '@/modules/user/dto/user.dto'
 
+/** Finance 供应商钱包批量查询单次上限。 */
+const SRM_USER_RESOLVE_LIMIT = 100
+
+/** 供应商列表、详情展示的钱包字段：来自 Finance 供应商钱包。 */
+interface SupplierBalanceFields {
+    /** 财务币种编码。没有钱包时保留供应商资料上的币种；Finance 不可用时也不覆盖。 */
+    currency?: string | null
+    /** 余额（放大百万倍存储值）：按钱包币种计；Finance 不可用时为 null。 */
+    balance: number | null
+    /** 信用额度（放大百万倍存储值）：按钱包币种计；Finance 不可用时为 null。 */
+    credit: number | null
+}
+
 @Injectable()
 export class UserUtilsService {
+    private readonly logger = new Logger(UserUtilsService.name)
     private readonly faker = new Faker({ locale: [zh_CN, en] })
 
     constructor(
         @InjectRepository(Schema.TbSrmUser) private readonly repository: Repository<Schema.TbSrmUser>,
         @InjectRepository(Schema.TbSrmUserConfig) private readonly configRepository: Repository<Schema.TbSrmUserConfig>,
-        private readonly database: DataBaseService
+        private readonly database: DataBaseService,
+        private readonly financeFeignClient: FeignClientFinanceManager,
+        private readonly configService: ConfigService
     ) {}
 
     /** 随机生成新增供应商表单初始化数据。 */
@@ -156,18 +178,18 @@ export class UserUtilsService {
         throw new ConflictException('供应商别名生成失败，请重试')
     }
 
-    /** 新增供应商，同一事务内初始化默认供应商配置并创建一条联系人；任一步失败整体回滚。 */
+    /** 新增供应商，同一事务内初始化默认供应商配置并创建一条联系人；提交后创建 Finance 钱包。 */
     public async createUser(input: UserDto.CreateUserDto & { ownerUserUid: string; ownerUserNumber: string }): Promise<Schema.TbSrmUser> {
         if (!input.contact) {
             throw new BadRequestException('新增供应商必须填写联系人信息')
         }
-        return this.repository.manager.transaction(async manager => {
+        const user = await this.repository.manager.transaction(async manager => {
             const alias = await this.generateAlias(manager, input.ownerUserNumber)
-            const user = await manager.save(this.buildUser(manager, { ...input, alias }))
-            await this.saveConfig(manager, user.keyId, input.ownerUserUid)
+            const created = await manager.save(this.buildUser(manager, { ...input, alias }))
+            await this.saveConfig(manager, created.keyId, input.ownerUserUid)
             await manager.save(
                 manager.create(Schema.TbSrmUserContact, {
-                    userKeyId: user.keyId,
+                    userKeyId: created.keyId,
                     name: input.contact.name,
                     items: input.contact.items ?? [],
                     address: input.contact.address,
@@ -177,7 +199,38 @@ export class UserUtilsService {
                     modifyBy: input.ownerUserUid
                 })
             )
-            return user
+            return created
+        })
+        const payMode =
+            user.payMode === Schema.TbSrmUserPayMode.PREPAID
+                ? Schema.TbFinanceSrmUserWalletPayMode.PREPAID
+                : user.payMode === Schema.TbSrmUserPayMode.POSTPAID
+                  ? Schema.TbFinanceSrmUserWalletPayMode.POSTPAID
+                  : undefined
+        if (!payMode) {
+            await this.removeCreatedUser(user.keyId)
+            throw new BadRequestException('付款模式格式错误')
+        }
+        try {
+            await this.financeFeignClient.httpBaseFinanceCreateSrmUserWallet(resolveFeignServiceAuthorization(this.configService), {
+                userKeyId: user.keyId,
+                currency: user.currency,
+                payMode
+            })
+        } catch (error) {
+            await this.removeCreatedUser(user.keyId)
+            const reason = error instanceof Error ? error.message : String(error)
+            throw new ServiceUnavailableException(`创建供应商钱包失败：${reason}`)
+        }
+        return user
+    }
+
+    /** 钱包创建失败时删掉刚写入的供应商，避免留下没有钱包的账号。 */
+    private async removeCreatedUser(userKeyId: number): Promise<void> {
+        await this.repository.manager.transaction(async manager => {
+            await manager.delete(Schema.TbSrmUserContact, { userKeyId })
+            await manager.delete(Schema.TbSrmUserConfig, { userKeyId })
+            await manager.delete(Schema.TbSrmUser, { keyId: userKeyId })
         })
     }
 
@@ -201,5 +254,39 @@ export class UserUtilsService {
             source: input.source ?? constants.SRM_USER_SOURCE_MANUAL,
             remark: input.remark
         })
+    }
+
+    /**
+     * 为供应商列表追加 Finance 钱包，直接修改并返回原列表。
+     * Finance 是供应商余额的权威来源；不可用时余额返回 null，不影响列表和详情的其他内容。
+     */
+    public async fetchAppendBalance<T extends { keyId: number }>(list: T[]): Promise<Array<T & SupplierBalanceFields>> {
+        const accounts = await this.findAccounts(list.map(item => item.keyId))
+        for (const item of list) {
+            const account = (accounts.get(item.keyId) ?? {}) as FinanceSrmUserSummary
+            Object.assign(item, { balance: account.balance ?? 0, credit: account.credit ?? 0 })
+        }
+        return list as Array<T & SupplierBalanceFields>
+    }
+
+    /** 按 100 个一批查询 Finance；失败时返回 undefined，由调用方展示为空余额。 */
+    private async findAccounts(keyIds: number[]): Promise<Map<number, FinanceSrmUserSummary>> {
+        const unique = [...new Set(keyIds)].filter(keyId => Number.isInteger(keyId) && keyId > 0)
+        if (unique.length === 0) {
+            return new Map()
+        }
+        try {
+            const authorization = resolveFeignServiceAuthorization(this.configService)
+            const groups = Array.from({ length: Math.ceil(unique.length / SRM_USER_RESOLVE_LIMIT) }, (_, index) =>
+                unique.slice(index * SRM_USER_RESOLVE_LIMIT, (index + 1) * SRM_USER_RESOLVE_LIMIT)
+            )
+            const results = await Promise.all(
+                groups.map(userKeyIds => this.financeFeignClient.httpBaseFinanceColumnSrmUserResolver(authorization, { userKeyIds }))
+            )
+            return new Map(results.flat().map(account => [account.userKeyId, account]))
+        } catch (error) {
+            this.logger.warn(`查询 Finance 供应商钱包失败，余额暂不展示：${error instanceof Error ? error.message : String(error)}`)
+            return new Map()
+        }
     }
 }
