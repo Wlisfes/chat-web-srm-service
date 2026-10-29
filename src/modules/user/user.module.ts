@@ -5,7 +5,6 @@ import { FeignClientFinanceManager, FeignClientSkylineManager, FeignModule } fro
 import { UserController } from '@/modules/user/user.controller'
 import { UserService } from '@/modules/user/user.service'
 import { UserUtilsService } from '@/modules/user/user.utils.service'
-import { UserBalanceService } from '@/modules/user/user.balance.service'
 import { RouteConfigEventService } from '@/modules/route/route-config-event.service'
 
 @Module({
@@ -14,7 +13,7 @@ import { RouteConfigEventService } from '@/modules/route/route-config-event.serv
         FeignModule.register([FeignClientSkylineManager, FeignClientFinanceManager])
     ],
     controllers: [UserController],
-    providers: [UserService, UserUtilsService, UserBalanceService, RouteConfigEventService],
+    providers: [UserService, UserUtilsService, RouteConfigEventService],
     exports: [UserService, UserUtilsService]
 })
 export class UserModule {}

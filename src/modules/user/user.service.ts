@@ -2,7 +2,6 @@ import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { UserUtilsService } from '@/modules/user/user.utils.service'
-import { UserBalanceService } from '@/modules/user/user.balance.service'
 import { RouteConfigEventService } from '@/modules/route/route-config-event.service'
 import { InjectRepository, DataBaseService, Repository } from '@wlisfes/chat-web-base-schema/database'
 import { PageResult, isNotEmpty, fetchResolver, fetchUntiePagination } from '@wlisfes/chat-web-base-schema/utils'
@@ -19,8 +18,7 @@ export class UserService {
         private readonly userUtilsService: UserUtilsService,
         private readonly skylineFeignClient: feign.FeignClientSkylineManager,
         private readonly configService: ConfigService,
-        private readonly routeConfigEventService: RouteConfigEventService,
-        private readonly userBalanceService: UserBalanceService
+        private readonly routeConfigEventService: RouteConfigEventService
     ) {}
 
     /** 供应商静态枚举。 */
@@ -72,7 +70,7 @@ export class UserService {
         return result
     }
 
-    /** 分页查询 SRM 供应商，归属人通过账号 Feign 还原为 ownerUserUidOptions（含所属组织），余额来自 Finance 供应商账户。 */
+    /** 分页查询 SRM 供应商，归属人通过账号 Feign 还原为 ownerUserUidOptions（含所属组织），余额来自 Finance 供应商钱包。 */
     public async httpBaseSrmColumnUser(input: UserDto.ListUserDto): Promise<PageResult<UserDto.UserColumnResponseDto>> {
         const { page, size } = fetchUntiePagination(input)
         return this.database.builder(this.repository, async qb => {
@@ -99,7 +97,7 @@ export class UserService {
                     feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, list, ['ownerUserUid'], {
                         fields: ['organizations']
                     }),
-                    this.userBalanceService.fetchAppendBalance(list)
+                    this.userUtilsService.fetchAppendBalance(list)
                 ])
                 return fetchResolver({ page, size, total, list: items })
             })
@@ -114,7 +112,7 @@ export class UserService {
             feign.fetchAppendSkylineUserOptions(this.skylineFeignClient, this.configService, [user], ['ownerUserUid'], {
                 fields: ['organizations']
             }),
-            this.userBalanceService.fetchAppendBalance([user])
+            this.userUtilsService.fetchAppendBalance([user])
         ])
         return Object.assign(balanced, { config })
     }
