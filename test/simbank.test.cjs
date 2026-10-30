@@ -88,7 +88,7 @@ test('新增设备在命名锁内生成别名，写入端口数并同步创建�
         { uid: '30001', number: '1233' },
         { name: ' SIMBANK-01 ', model: 1024317, mac: 'aa:bb:cc:dd:ee:ff', userKeyId: 10241000, alias: 'IGNORED' }
     )
-    assert.equal(result.alias, 'SSK1233SMSA001')
+    assert.equal(result.alias, 'RSK1233SMSA001')
     assert.equal(result.total, 64)
     assert.equal(result.name, 'SIMBANK-01')
     assert.equal(result.mac, 'AA:BB:CC:DD:EE:FF')
@@ -118,7 +118,7 @@ test('新增设备在命名锁内生成别名，写入端口数并同步创建�
     ])
 })
 
-test('设备别名按工号自增：SSK + 工号 + SMS + A001-Z999，之后 AA01-ZZ99', async () => {
+test('设备别名按工号自增：RSK + 工号 + SMS + A001-Z999，之后 AA01-ZZ99', async () => {
     const make = aliases => {
         const database = {
             builder: async (_repository, callback) => {
@@ -129,10 +129,10 @@ test('设备别名按工号自增：SSK + 工号 + SMS + A001-Z999，之后 AA01
         return new SimbankUtilsService({}, database, {}, {}, {})
     }
     const manager = { getRepository: () => ({}) }
-    assert.equal(await make([]).generateAlias(manager, '1233'), 'SSK1233SMSA001')
-    assert.equal(await make(['SSK1233SMSA001', 'SSK1233SMSA007', 'OTHER']).generateAlias(manager, '1233'), 'SSK1233SMSA008')
-    assert.equal(await make(['SSK1233SMSA999']).generateAlias(manager, '1233'), 'SSK1233SMSB001')
-    assert.equal(await make(['SSK1233SMSZ999']).generateAlias(manager, '1233'), 'SSK1233SMSAA01')
+    assert.equal(await make([]).generateAlias(manager, '1233'), 'RSK1233SMSA001')
+    assert.equal(await make(['RSK1233SMSA001', 'RSK1233SMSA007', 'OTHER']).generateAlias(manager, '1233'), 'RSK1233SMSA008')
+    assert.equal(await make(['RSK1233SMSA999']).generateAlias(manager, '1233'), 'RSK1233SMSB001')
+    assert.equal(await make(['RSK1233SMSZ999']).generateAlias(manager, '1233'), 'RSK1233SMSAA01')
     assert.equal(make([]).formatAliasSequence(92898), 'ZZ99')
     await assert.rejects(make([]).generateAlias(manager, ''), /缺少有效工号/)
     assert.throws(() => make([]).formatAliasSequence(92899), /序号已用完/)
@@ -546,7 +546,7 @@ test('按方向和归属人查询可绑定端口：不分页，附带设备，�
         ]
     }
     const database = { builder: async (_repository, callback) => callback(qb), selection: async () => qb }
-    const simbank = { keyId: 100202, alias: 'SSK1233SMSA002', name: '昊天科技-澜沧' }
+    const simbank = { keyId: 100202, alias: 'RSK1233SMSA002', name: '昊天科技-澜沧' }
     const service = createSimbankService(
         {},
         database,
@@ -558,7 +558,7 @@ test('按方向和归属人查询可绑定端口：不分页，附带设备，�
     const list = await service.httpBaseSrmSelectSimbankPort({ countryKeyId: 1077, ownerUserUid: '30001', vague: ' +86138 ' })
     assert.equal(list.length, 2)
     assert.equal(list[0].simbankOptions.name, '昊天科技-澜沧')
-    assert.equal(list[0].showName, 'SSK1233SMSA002 - 端口[1]')
+    assert.equal(list[0].showName, 'RSK1233SMSA002 - 端口[1]')
     assert.deepEqual(calls.find(([sql]) => sql.includes('t.imei LIKE'))[1], { vague: '%+86138%' })
 })
 

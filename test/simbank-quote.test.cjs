@@ -5,7 +5,7 @@ const { SimbankQuoteUtilsService } = require('../dist/modules/quote/quote.utils.
 
 const principal = { uid: '30001' }
 const supplier = { keyId: 10241000, alias: 'SSK1233A7K9', currency: 'CNY' }
-const simbank = { keyId: 100201, alias: 'SSK1233SMSA002', userKeyId: 10241000 }
+const simbank = { keyId: 100201, alias: 'RSK1233SMSA002', userKeyId: 10241000 }
 
 /** 构造报价服务：草稿写入走假事务，Finance 价格与汇率由 finance 桩返回。 */
 function createService({ existing = new Map(), rates, user = supplier, device = simbank, saved = [] } = {}) {
@@ -54,7 +54,7 @@ test('初始化草稿：取 Finance simbank 基础成本价，按供应商币种
     assert.equal(draft.draftBatchId, result.draftBatchId)
     assert.deepEqual(
         [draft.userKeyId, draft.simbankKeyId, draft.userAlias, draft.simbankAlias, draft.upUsd, draft.downUsd],
-        [10241000, 100201, 'SSK1233A7K9', 'SSK1233SMSA002', 1500, 4500]
+        [10241000, 100201, 'SSK1233A7K9', 'RSK1233SMSA002', 1500, 4500]
     )
     assert.deepEqual([draft.currency, draft.upLocal, draft.downLocal, draft.source], ['CNY', 10800, 32400, 'addition'])
 })

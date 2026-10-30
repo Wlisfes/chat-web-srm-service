@@ -265,6 +265,6 @@ export class OwnerCountryPortItemDto extends PickType(Schema.TbSrmSimbankPortDto
     @ApiProperty({ description: '所属设备信息', required: false, type: OwnerCountryPortSimbankDto })
     simbankOptions?: OwnerCountryPortSimbankDto
 
-    @ApiProperty({ description: '下拉展示：设备别名 - 端口号', example: 'SSK1024SMSA001 - 端口[1]' })
+    @ApiProperty({ description: '下拉展示：设备别名 - 端口号', example: 'RSK1024SMSA001 - 端口[1]' })
     showName: string
 }
