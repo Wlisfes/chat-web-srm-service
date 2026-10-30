@@ -493,7 +493,7 @@ test('插卡模拟数据入参只接受 countryKeyId，插卡入参不再包含 
     })
     assert.deepEqual(await validate(insert), [])
 })
-test('短信历史分页按条件过滤，号码关键字去掉开头的 + 号', async () => {
+test('短信历史分页按 MCC 精确过滤', async () => {
     const wheres = []
     const database = {
         async builder(_repo, callback) {
@@ -519,13 +519,12 @@ test('短信历史分页按条件过滤，号码关键字去掉开头的 + 号',
         {},
         {}
     )
-    const result = await service.httpBaseSrmColumnSimbankMessage({ page: 1, size: 20, source: 'down', name: '+86138' })
+    const result = await service.httpBaseSrmColumnSimbankMessage({ page: 1, size: 20, source: 'down', mcc: ' 460 ' })
     assert.equal(result.total, 1)
-    assert.equal(
-        wheres.some(item => item[0] === 't.source = :source'),
-        true
-    )
-    assert.equal(wheres.find(item => String(item[0]).includes('fromNumber'))[1].numberKeyword, '%86138%')
+    assert.deepEqual(wheres, [
+        ['t.mcc = :mcc', { mcc: '460' }],
+        ['t.source = :source', { source: 'down' }]
+    ])
 })
 test('按方向和归属人查询可绑定端口：不分页，附带设备，关键词模糊匹配 SIM、IMEI、ICCID', async () => {
     const calls = []

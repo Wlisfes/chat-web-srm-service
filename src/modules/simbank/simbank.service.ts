@@ -274,12 +274,12 @@ export class SimbankService {
         }
     }
 
-    /** 分页查询短信历史。号码关键字兼容开头的 + 号；设备、供应商和国家/地区使用快照字段过滤。 */
+    /** 分页查询短信历史。设备、供应商和 MCC 使用快照字段过滤。 */
     public async httpBaseSrmColumnSimbankMessage(
         input: SimbankDto.ListSimbankMessageDto
     ): Promise<PageResult<SimbankDto.SimbankMessageColumnResponseDto>> {
         const { page, size } = fetchUntiePagination(input)
-        const keyword = input.name?.trim()
+        const mcc = input.mcc?.trim()
         return this.database.builder(this.messageRepository, async qb => {
             if (isNotEmpty(input.simbankKeyId)) {
                 qb.andWhere('t.simbankKeyId = :simbankKeyId', { simbankKeyId: input.simbankKeyId })
@@ -287,8 +287,8 @@ export class SimbankService {
             if (isNotEmpty(input.userKeyId)) {
                 qb.andWhere('t.userKeyId = :userKeyId', { userKeyId: input.userKeyId })
             }
-            if (isNotEmpty(input.countryKeyId)) {
-                qb.andWhere('t.countryKeyId = :countryKeyId', { countryKeyId: input.countryKeyId })
+            if (mcc) {
+                qb.andWhere('t.mcc = :mcc', { mcc })
             }
             if (isNotEmpty(input.source)) {
                 qb.andWhere('t.source = :source', { source: input.source })
@@ -301,30 +301,6 @@ export class SimbankService {
             }
             if (isNotEmpty(input.sendStatus)) {
                 qb.andWhere('t.sendStatus = :sendStatus', { sendStatus: input.sendStatus })
-            }
-            if (keyword) {
-                const clauses = [
-                    't.fromNumber LIKE :numberKeyword',
-                    't.toNumber LIKE :numberKeyword',
-                    't.sim LIKE :numberKeyword',
-                    't.content LIKE :keyword',
-                    't.iccid LIKE :keyword',
-                    't.simbankName LIKE :keyword',
-                    't.simbankAlias LIKE :keyword',
-                    't.channelAlias LIKE :keyword',
-                    't.userName LIKE :keyword',
-                    't.userAlias LIKE :keyword',
-                    't.statusCode LIKE :keyword'
-                ]
-                const params: Record<string, string | number> = {
-                    keyword: `%${keyword}%`,
-                    numberKeyword: `%${keyword.replace(/^\+/, '')}%`
-                }
-                if (/^\d+$/.test(keyword)) {
-                    clauses.push('t.port = :number', 't.keyId = :number', 't.simbankKeyId = :number', 't.portKeyId = :number')
-                    params.number = Number(keyword)
-                }
-                qb.andWhere(`(${clauses.join(' OR ')})`, params)
             }
             qb.orderBy('t.createTime', 'DESC')
             qb.addOrderBy('t.keyId', 'DESC')
