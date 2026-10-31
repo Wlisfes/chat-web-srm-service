@@ -79,7 +79,7 @@ test('新增设备在命名锁内生成别名，写入端口数并同步创建�
         fetchNormalizeMac: mac => mac.toUpperCase(),
         acquireCreateLock: async () => calls.push(['lock']) > 0,
         releaseCreateLock: async () => calls.push(['unlock']),
-        generateAlias: async (_manager, number) => `SSK${number}SMSA001`,
+        generateAlias: async (_manager, number) => `RSK${number}SMSA001`,
         fetchCheckUser: async keyId => calls.push(['user', keyId]),
         fetchCheckUnique: async (_manager, input) => calls.push(['unique', input])
     }

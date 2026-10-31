@@ -461,9 +461,9 @@ export class SimbankService {
                 qb.where('t.simbankKeyId IN (:...simbankKeyIds)', {
                     simbankKeyIds: simbanks.map(item => item.keyId)
                 })
-                qb.andWhere('t.countryKeyId = :countryKeyId', {
-                    countryKeyId: input.countryKeyId
-                })
+                if (isNotEmpty(input.countryKeyId)) {
+                    qb.andWhere('t.countryKeyId = :countryKeyId', { countryKeyId: input.countryKeyId })
+                }
                 qb.andWhere('t.activateStatus = :activateStatus', {
                     activateStatus: Schema.TbSrmSimbankPortActivateStatus.ACTIVE
                 })
