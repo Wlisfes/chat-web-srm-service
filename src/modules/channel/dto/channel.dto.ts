@@ -15,7 +15,7 @@ export class ChannelEnumsResponseDto extends EnumsResponseDto({
 
 /** 新增通道入参：POST /channel/create；别名按 TSK + 归属人工号 + 类型 + 分段序号自动生成，归属人默认当前登录人，新建通道默认停用。 */
 export class CreateChannelDto extends IntersectionType(
-    PickType(Schema.TbSrmChannelDto, ['name', 'countryKeyId', 'type', 'sendInterval', 'maxRetry'] as const),
+    PickType(Schema.TbSrmChannelDto, ['name', 'type', 'sendInterval', 'maxRetry'] as const),
     PartialType(PickType(Schema.TbSrmChannelDto, ['ownerUserUid', 'remark'] as const))
 ) {}
 
@@ -34,7 +34,7 @@ export class ChannelKeyDto extends PickType(Schema.TbSrmChannelDto, ['keyId'] as
 /** 通道分页入参：POST /channel/column；alias 模糊匹配。 */
 export class ListChannelDto extends IntersectionType(
     PageDto,
-    PartialType(PickType(Schema.TbSrmChannelDto, ['alias', 'type', 'countryKeyId', 'ownerUserUid', 'status'] as const))
+    PartialType(PickType(Schema.TbSrmChannelDto, ['alias', 'type', 'ownerUserUid', 'status'] as const))
 ) {}
 
 /** 通道列表项：附带方向、归属人、绑定端口数、启用端口数和引用路由数。 */
@@ -48,9 +48,6 @@ export class ChannelColumnResponseDto extends IntersectionType(Schema.TbSrmChann
     @ApiProperty({ description: '引用该通道的路由数', example: 2 })
     routeCount: number
 
-    @ApiProperty({ description: '方向信息', required: false, type: feign.SkylineCountrySummaryResponseDto })
-    countryKeyIdOptions?: feign.SkylineCountrySummaryResponseDto
-
     @ApiProperty({ description: '归属人信息', required: false, type: feign.SkylineUserOptionResponseDto })
     ownerUserUidOptions?: feign.SkylineUserOptionResponseDto
 }
@@ -62,14 +59,7 @@ export class ChannelPageResponseDto extends PageResponseDataDto {
 }
 
 /** 通道下拉项：GET /channel/select。 */
-export class ChannelSelectResponseDto extends PickType(Schema.TbSrmChannelDto, [
-    'keyId',
-    'alias',
-    'name',
-    'type',
-    'countryKeyId',
-    'status'
-] as const) {}
+export class ChannelSelectResponseDto extends PickType(Schema.TbSrmChannelDto, ['keyId', 'alias', 'name', 'type', 'status'] as const) {}
 
 /** 绑定端口明细：端口、权重和绑定状态。 */
 export class BindChannelPortItemDto extends PickType(Schema.TbSrmChannelPortDto, ['portKeyId', 'weight', 'status'] as const) {}

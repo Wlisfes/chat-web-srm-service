@@ -60,7 +60,6 @@ export interface SmsChannelEventPayload {
     alias: string
     queue: string
     type: string
-    countryKeyId: number
     status: string
     sendInterval: number
     maxRetry: number

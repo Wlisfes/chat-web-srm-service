@@ -52,7 +52,7 @@ export class SimbankUtilsService {
         await manager.query('SELECT RELEASE_LOCK(?) AS released', [constants.SRM_SIMBANK_CREATE_LOCK])
     }
 
-    /** 生成创建人工号维度自增的设备别名：SSK + 工号 + SMS + 4位分段序号，A001-Z999 后进入 AA01-ZZ99。 */
+    /** 生成创建人工号维度自增的设备别名：RSK + 工号 + SMS + 4位分段序号，A001-Z999 后进入 AA01-ZZ99。 */
     public async generateAlias(manager: EntityManager, number: string): Promise<string> {
         const userNumber = number?.trim()
         if (!isNotEmpty(userNumber) || !/^[A-Za-z0-9]+$/.test(userNumber)) {

@@ -5,7 +5,7 @@ import { ConfigService } from '@nestjs/config'
 import * as constants from '@/modules/channel/channel-event.constants'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 
-type ChannelSnapshot = Pick<Schema.TbSrmChannel, 'keyId' | 'alias' | 'type' | 'countryKeyId' | 'status' | 'sendInterval' | 'maxRetry'>
+type ChannelSnapshot = Pick<Schema.TbSrmChannel, 'keyId' | 'alias' | 'type' | 'status' | 'sendInterval' | 'maxRetry'>
 
 /**
  * 通道事件发布。
@@ -41,7 +41,7 @@ export class ChannelEventService implements OnApplicationBootstrap {
 
     private async publishSnapshot(): Promise<void> {
         const channels = await this.repository.find({
-            select: ['keyId', 'alias', 'type', 'countryKeyId', 'status', 'sendInterval', 'maxRetry']
+            select: ['keyId', 'alias', 'type', 'status', 'sendInterval', 'maxRetry']
         })
         const version = Date.now()
         for (const channel of channels) {
@@ -79,7 +79,6 @@ export class ChannelEventService implements OnApplicationBootstrap {
             alias: channel.alias,
             queue: constants.smsChannelQueue(channel.alias),
             type: channel.type,
-            countryKeyId: channel.countryKeyId,
             status: channel.status,
             sendInterval: channel.sendInterval,
             maxRetry: channel.maxRetry,

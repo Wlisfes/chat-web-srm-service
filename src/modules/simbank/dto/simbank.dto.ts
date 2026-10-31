@@ -178,34 +178,12 @@ export class ActivateSimbankPortDto extends IntersectionType(
 /** 端口主键入参：POST /simbank/port/remove、POST /simbank/port/release。 */
 export class SimbankPortKeyDto extends PickType(Schema.TbSrmSimbankPortDto, ['keyId'] as const) {}
 
-/** 短信历史关键词。 */
-class SimbankMessageKeywordDto {
-    @ApiProperty({
-        description: '关键词：发送号码、接收号码、内容、SIM、ICCID、设备、通道、供应商或状态码',
-        required: false,
-        example: '86138'
-    })
-    @IsOptional()
-    @IsString({ message: '关键词必须是字符串' })
-    @MaxLength(64, { message: '关键词长度不能超过64位' })
-    name?: string
-}
-
 /** 分页查询短信历史入参：POST /simbank/message/column。 */
 export class ListSimbankMessageDto extends IntersectionType(
     PageDto,
     PartialType(
-        PickType(Schema.TbSrmSimbankMessageDto, [
-            'simbankKeyId',
-            'userKeyId',
-            'countryKeyId',
-            'source',
-            'type',
-            'encoding',
-            'sendStatus'
-        ] as const)
-    ),
-    SimbankMessageKeywordDto
+        PickType(Schema.TbSrmSimbankMessageDto, ['simbankKeyId', 'userKeyId', 'mcc', 'source', 'type', 'encoding', 'sendStatus'] as const)
+    )
 ) {}
 
 /** 短信历史静态枚举响应：GET /simbank/message/enums。 */
@@ -265,6 +243,6 @@ export class OwnerCountryPortItemDto extends PickType(Schema.TbSrmSimbankPortDto
     @ApiProperty({ description: '所属设备信息', required: false, type: OwnerCountryPortSimbankDto })
     simbankOptions?: OwnerCountryPortSimbankDto
 
-    @ApiProperty({ description: '下拉展示：设备别名 - 端口号', example: 'SSK1024SMSA001 - 端口[1]' })
+    @ApiProperty({ description: '下拉展示：设备别名 - 端口号', example: 'RSK1024SMSA001 - 端口[1]' })
     showName: string
 }

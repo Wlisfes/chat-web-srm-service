@@ -38,9 +38,8 @@ export class ChannelService {
         }
     }
 
-    /** 新增通道：别名按 TSK + 归属人工号 + 类型 + 分段序号自动生成，归属人默认当前登录人，新建通道默认停用。 */
+    /** 新增通道：别名按 TSK + 归属人工号 + 类型 + 分段序号自动生成，归属人默认当前登录人，新建通道默认停用。方向不在通道上，由绑定端口的激活方向决定。 */
     public async httpBaseSrmCreateChannel(principal: AuthPrincipal, input: ChannelDto.CreateChannelDto): Promise<Schema.TbSrmChannel> {
-        await this.channelUtilsService.findCountryRequired(input.countryKeyId)
         const ownerUserUid = input.ownerUserUid ?? principal.uid
         const ownerNumber = await this.channelUtilsService.resolveOwnerNumber(principal, ownerUserUid)
         const channel = await this.repository.manager.transaction(async manager => {
@@ -50,7 +49,6 @@ export class ChannelService {
                     alias,
                     name: input.name.trim(),
                     type: input.type,
-                    countryKeyId: input.countryKeyId,
                     ownerUserUid,
                     sendInterval: input.sendInterval,
                     maxRetry: input.maxRetry,
@@ -135,7 +133,7 @@ export class ChannelService {
         }
     }
 
-    /** 通道分页：附带端口数、引用路由数、方向和归属人。 */
+    /** 通道分页：附带端口数、引用路由数和归属人。 */
     public async httpBaseSrmColumnChannel(input: ChannelDto.ListChannelDto): Promise<PageResult<ChannelDto.ChannelColumnResponseDto>> {
         const { page, size } = fetchUntiePagination(input)
         return this.database.builder(this.repository, async qb => {
@@ -144,7 +142,6 @@ export class ChannelService {
                 qb.andWhere('(t.alias LIKE :keyword OR t.name LIKE :keyword)', { keyword: `%${keyword}%` })
             }
             if (isNotEmpty(input.type)) qb.andWhere('t.type = :type', { type: input.type })
-            if (isNotEmpty(input.countryKeyId)) qb.andWhere('t.countryKeyId = :countryKeyId', { countryKeyId: input.countryKeyId })
             if (isNotEmpty(input.ownerUserUid)) qb.andWhere('t.ownerUserUid = :ownerUserUid', { ownerUserUid: input.ownerUserUid })
             if (isNotEmpty(input.status)) qb.andWhere('t.status = :status', { status: input.status })
             qb.orderBy('t.createTime', 'DESC')
@@ -178,14 +175,14 @@ export class ChannelService {
     /** 通道下拉。 */
     public async httpBaseSrmSelectChannel(): Promise<ChannelDto.ChannelSelectResponseDto[]> {
         return this.repository.find({
-            select: { keyId: true, alias: true, type: true, countryKeyId: true, status: true },
+            select: { keyId: true, alias: true, type: true, status: true },
             order: { createTime: 'DESC', keyId: 'DESC' }
         })
     }
 
     /**
      * 更新通道端口绑定：以本次提交的端口集合为准，保留已选端口、删除未选端口、新增新选端口。
-     * 端口必须存在、已激活且激活方向与通道方向一致；已绑定到其他通道的端口会被拒绝。
+     * 端口必须已激活并已选择激活方向；一条通道可以绑定多个方向的端口。已绑定到其他通道的端口会被拒绝。
      */
     public async httpBaseSrmBindChannelPort(principal: AuthPrincipal, input: ChannelDto.BindChannelPortDto): Promise<{ count: number }> {
         const result = await this.repository.manager.transaction(async manager => {
@@ -202,12 +199,12 @@ export class ChannelService {
             if (ports.length !== portKeyIds.length) {
                 throw new NotFoundException('部分端口不存在')
             }
-            const mismatched = ports.filter(port => {
-                return port.activateStatus !== Schema.TbSrmSimbankPortActivateStatus.ACTIVE || port.countryKeyId !== channel.countryKeyId
-            })
-            if (mismatched.length > 0) {
-                const numbers = mismatched.map(port => port.port).join('、')
-                throw new BadRequestException(`端口未激活或激活方向与通道不一致：${numbers}`)
+            const inactive = ports.filter(
+                port => port.activateStatus !== Schema.TbSrmSimbankPortActivateStatus.ACTIVE || !port.countryKeyId
+            )
+            if (inactive.length > 0) {
+                const numbers = inactive.map(port => port.port).join('、')
+                throw new BadRequestException(`端口未激活或未选择激活方向：${numbers}`)
             }
 
             const bound = await manager.find(Schema.TbSrmChannelPort, {

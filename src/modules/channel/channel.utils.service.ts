@@ -106,16 +106,6 @@ export class ChannelUtilsService {
         return `${String.fromCharCode(65 + Math.floor(group / 26), 65 + (group % 26))}${String((index % 99) + 1).padStart(2, '0')}`
     }
 
-    /** 查询方向，通道必须绑定已存在的方向。 */
-    public async findCountryRequired(countryKeyId: number): Promise<feign.SkylineCountrySummaryResponseDto> {
-        const authorization = this.authorization()
-        const [country] = await this.skylineFeignClient.httpBaseSkylineColumnCountryResolver(authorization, { keyIds: [countryKeyId] })
-        if (!country) {
-            throw new BadRequestException('方向不存在')
-        }
-        return country
-    }
-
     /** 校验归属人账号存在。 */
     public async assertUserExists(uid: string): Promise<void> {
         const [user] = await this.skylineFeignClient.httpBaseSkylineColumnUserResolver(this.authorization(), { uids: [uid] })

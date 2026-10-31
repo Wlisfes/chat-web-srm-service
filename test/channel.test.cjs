@@ -48,31 +48,19 @@ test('新增通道按 TSK+归属人工号+类型+分段序号 生成别名，归
     }
     const result = await createService(manager, { skyline }).httpBaseSrmCreateChannel(principal, {
         name: ' 香港营销主通道 ',
-        countryKeyId: 1007,
         type: 'MRKT',
         sendInterval: 3000,
         maxRetry: 3
     })
     assert.equal(result.alias, 'TSK1024-MRKT-A004')
     assert.equal(result.name, '香港营销主通道')
-    assert.equal(result.countryKeyId, 1007)
     assert.equal(result.ownerUserUid, '30001')
     assert.equal(result.status, 'disable')
 })
 
-test('新增通道时方向或归属人不存在则拒绝', async () => {
-    const noCountry = { ...skyline, httpBaseSkylineColumnCountryResolver: async () => [] }
+test('新增通道时归属人不存在则拒绝', async () => {
     await assert.rejects(
-        () => createService({}, { skyline: noCountry }).httpBaseSrmCreateChannel(principal, { countryKeyId: 1, type: 'MRKT' }),
-        /方向不存在/
-    )
-    await assert.rejects(
-        () =>
-            createService({}, { skyline }).httpBaseSrmCreateChannel(principal, {
-                countryKeyId: 1007,
-                type: 'MRKT',
-                ownerUserUid: 'missing'
-            }),
+        () => createService({}, { skyline }).httpBaseSrmCreateChannel(principal, { type: 'MRKT', ownerUserUid: 'missing' }),
         /归属人不存在/
     )
 })
@@ -109,7 +97,7 @@ test('删除通道前必须停用并从路由移除，绑定的端口随通道�
     ])
 })
 
-test('只能绑定已激活且方向与通道一致的端口', async () => {
+test('只能绑定已激活且已选择激活方向的端口，不同方向可以绑在同一通道', async () => {
     const manager = {
         findOneBy: async () => ({ keyId: 1, countryKeyId: 1007 }),
         find: async () => [
@@ -128,7 +116,7 @@ test('只能绑定已激活且方向与通道一致的端口', async () => {
                     { portKeyId: 13, weight: 1, status: 'enable' }
                 ]
             }),
-        /激活方向与通道不一致：2、3/
+        /未激活或未选择激活方向：3/
     )
 })
 
