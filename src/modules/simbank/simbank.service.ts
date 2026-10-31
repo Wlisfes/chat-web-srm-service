@@ -165,8 +165,9 @@ export class SimbankService {
             qb.select(['t.keyId', 't.name', 't.alias', 't.model', 't.mac', 't.total', 't.userKeyId', 't.status', 't.online'])
             qb.where('t.status = :status', { status: Schema.TbSrmSimbankStatus.ENABLE })
             if (isNotEmpty(query.userKeyId)) qb.andWhere('t.userKeyId = :userKeyId', { userKeyId: query.userKeyId })
-            if (isNotEmpty(query.name?.trim())) {
-                qb.andWhere('(t.name LIKE :name OR t.alias LIKE :name OR t.mac LIKE :name)', { name: `%${query.name?.trim()}%` })
+            const vague = fetchVagueKeyword(query.vague)
+            if (vague) {
+                qb.andWhere('(t.name LIKE :vague OR t.alias LIKE :vague OR t.mac LIKE :vague)', { vague: `%${vague}%` })
             }
             qb.orderBy('t.createTime', 'DESC')
             qb.addOrderBy('t.keyId', 'DESC')
@@ -274,13 +275,16 @@ export class SimbankService {
         }
     }
 
-    /** 分页查询短信历史。设备、供应商和 MCC 使用快照字段过滤。 */
+    /** 分页查询短信历史。消息ID精确匹配；设备、供应商、通道和 MCC 按记录快照过滤。 */
     public async httpBaseSrmColumnSimbankMessage(
         input: SimbankDto.ListSimbankMessageDto
     ): Promise<PageResult<SimbankDto.SimbankMessageColumnResponseDto>> {
         const { page, size } = fetchUntiePagination(input)
+        const msgId = input.msgId?.trim()
         const mcc = input.mcc?.trim()
         return this.database.builder(this.messageRepository, async qb => {
+            if (msgId) qb.andWhere('t.msgId = :msgId', { msgId })
+            if (isNotEmpty(input.channelKeyId)) qb.andWhere('t.channelKeyId = :channelKeyId', { channelKeyId: input.channelKeyId })
             if (isNotEmpty(input.simbankKeyId)) {
                 qb.andWhere('t.simbankKeyId = :simbankKeyId', { simbankKeyId: input.simbankKeyId })
             }
@@ -302,6 +306,8 @@ export class SimbankService {
             if (isNotEmpty(input.sendStatus)) {
                 qb.andWhere('t.sendStatus = :sendStatus', { sendStatus: input.sendStatus })
             }
+            if (input.startTime) qb.andWhere('t.sendTime >= :sendTimeStart', { sendTimeStart: input.startTime })
+            if (input.endTime) qb.andWhere('t.sendTime <= :sendTimeEnd', { sendTimeEnd: input.endTime })
             qb.orderBy('t.createTime', 'DESC')
             qb.addOrderBy('t.keyId', 'DESC')
             qb.skip((page - 1) * size)
