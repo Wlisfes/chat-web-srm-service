@@ -519,7 +519,16 @@ test('短信历史分页按 MCC 精确过滤', async () => {
         {},
         {}
     )
-    const result = await service.httpBaseSrmColumnSimbankMessage({ page: 1, size: 20, source: 'down', mcc: ' 460 ', msgId: ' msg-1 ', channelKeyId: 1001, startTime: '2026-10-31 00:00:00', endTime: '2026-10-31 23:59:59' })
+    const result = await service.httpBaseSrmColumnSimbankMessage({
+        page: 1,
+        size: 20,
+        source: 'down',
+        mcc: ' 460 ',
+        msgId: ' msg-1 ',
+        channelKeyId: 1001,
+        startTime: '2026-10-31 00:00:00',
+        endTime: '2026-10-31 23:59:59'
+    })
     assert.equal(result.total, 1)
     assert.deepEqual(wheres, [
         ['t.msgId = :msgId', { msgId: 'msg-1' }],

@@ -182,7 +182,17 @@ export class SimbankPortKeyDto extends PickType(Schema.TbSrmSimbankPortDto, ['ke
 export class ListSimbankMessageDto extends IntersectionType(
     PageDto,
     PartialType(
-        PickType(Schema.TbSrmSimbankMessageDto, ['msgId', 'channelKeyId', 'simbankKeyId', 'userKeyId', 'mcc', 'source', 'type', 'encoding', 'sendStatus'] as const)
+        PickType(Schema.TbSrmSimbankMessageDto, [
+            'msgId',
+            'channelKeyId',
+            'simbankKeyId',
+            'userKeyId',
+            'mcc',
+            'source',
+            'type',
+            'encoding',
+            'sendStatus'
+        ] as const)
     )
 ) {
     @ApiProperty({ description: '发送时间起始，包含该时刻', example: '2026-10-31 00:00:00', required: false })
