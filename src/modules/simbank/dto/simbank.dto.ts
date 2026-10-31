@@ -229,10 +229,12 @@ export class SimbankMessagePageResponseDto extends PageResponseDataDto {
     list: SimbankMessageColumnResponseDto[]
 }
 
-/** 按方向和归属人查询端口入参：POST /simbank/port/select。 */
+/** 查询可绑定端口入参：POST /simbank/port/select。默认只返回未绑定通道的可用端口；传入通道时包含该通道已绑定端口。 */
 export class ListOwnerCountryPortDto extends IntersectionType(
     PickType(Schema.TbSrmSimbankPortDto, ['countryKeyId'] as const),
     PickType(Schema.TbSrmChannelDto, ['ownerUserUid'] as const),
+    PartialType(PickType(Schema.TbSrmChannelPortDto, ['channelKeyId'] as const)),
+    PartialType(PickType(Schema.TbSrmSimbankPortDto, ['simbankKeyId'] as const)),
     VagueDto
 ) {}
 
