@@ -176,9 +176,13 @@ export class SimbankController {
     }
 
     @ApiServiceDecorator(Post('port/select'), {
-        operation: { summary: '按方向和归属人查询可绑定端口' },
+        operation: { summary: '查询可绑定端口' },
         request: { source: 'body', type: SimbankDto.ListOwnerCountryPortDto },
-        response: { type: SimbankDto.OwnerCountryPortItemDto, isArray: true, description: '匹配方向和归属人的全部可绑定端口，不分页' }
+        response: {
+            type: SimbankDto.OwnerCountryPortItemDto,
+            isArray: true,
+            description: '已激活且已插卡的可绑定端口。默认不含已绑定通道的端口；传入通道ID时包含该通道已绑定端口'
+        }
     })
     public async httpBaseSrmSelectSimbankPort(@Body() input: SimbankDto.ListOwnerCountryPortDto) {
         return this.simbankService.httpBaseSrmSelectSimbankPort(input)

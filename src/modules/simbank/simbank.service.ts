@@ -454,19 +454,31 @@ export class SimbankService {
         return port
     }
     /**
-     * 按激活方向、设备归属人查询可绑定到通道的端口；不分页，只返回已激活、已插卡、尚未绑定任何通道的端口。
+     * 查询可绑定到通道的端口，不分页。只返回已激活、已插卡的端口。
+     * 默认排除已绑定通道的端口；传入 channelKeyId 时保留该通道已绑定的端口；传入 simbankKeyId 时只查该设备。
      * vague 模糊匹配 SIM、IMEI、ICCID；SIM 兼容传入开头的 + 号。
      */
     public async httpBaseSrmSelectSimbankPort(input: SimbankDto.ListOwnerCountryPortDto): Promise<SimbankDto.OwnerCountryPortItemDto[]> {
         return await this.simbankUtilsService.findByOwnerUserUid(input.ownerUserUid).then(async ({ simbanks, simbankOptions }) => {
-            if (simbanks.length === 0) {
+            const devices = isNotEmpty(input.simbankKeyId) ? simbanks.filter(item => item.keyId === Number(input.simbankKeyId)) : simbanks
+            if (devices.length === 0) {
                 return []
             }
             return this.database.builder(this.portRepository, async qb => {
                 const vague = fetchVagueKeyword(input.vague)
                 qb.where('t.simbankKeyId IN (:...simbankKeyIds)', {
-                    simbankKeyIds: simbanks.map(item => item.keyId)
+                    simbankKeyIds: devices.map(item => item.keyId)
                 })
+                if (isNotEmpty(input.channelKeyId)) {
+                    qb.andWhere(
+                        't.keyId NOT IN (SELECT cp.port_key_id FROM tb_srm_channel_port cp WHERE cp.channel_key_id <> :boundChannelKeyId)',
+                        {
+                            boundChannelKeyId: input.channelKeyId
+                        }
+                    )
+                } else {
+                    qb.andWhere('t.keyId NOT IN (SELECT cp.port_key_id FROM tb_srm_channel_port cp)')
+                }
                 if (isNotEmpty(input.countryKeyId)) {
                     qb.andWhere('t.countryKeyId = :countryKeyId', { countryKeyId: input.countryKeyId })
                 }

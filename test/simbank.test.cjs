@@ -574,6 +574,66 @@ test('按方向和归属人查询可绑定端口：不分页，附带设备，�
     assert.deepEqual(calls.find(([sql]) => sql.includes('t.imei LIKE'))[1], { vague: '%+86138%' })
 })
 
+test('可绑定端口默认排除已绑定通道端口，传入通道时保留该通道端口，传入设备时只查该设备', async () => {
+    const simbanks = [
+        { keyId: 100201, alias: 'RSK1233SMSA001' },
+        { keyId: 100202, alias: 'RSK1233SMSA002' }
+    ]
+    async function select(input) {
+        const calls = []
+        const qb = {
+            where: (sql, params) => (calls.push([sql, params]), qb),
+            andWhere: (sql, params) => (calls.push([sql, params]), qb),
+            orderBy: () => qb,
+            addOrderBy: () => qb,
+            getMany: async () => []
+        }
+        const service = createSimbankService(
+            {},
+            { builder: async (_repository, callback) => callback(qb), selection: async () => qb },
+            { findByOwnerUserUid: async () => ({ simbanks, simbankOptions: new Map(simbanks.map(item => [item.keyId, item])) }) },
+            {}
+        )
+        await service.httpBaseSrmSelectSimbankPort({ ownerUserUid: '30001', ...input })
+        return calls
+    }
+
+    const defaults = await select({})
+    assert.deepEqual(defaults[0][1], { simbankKeyIds: [100201, 100202] })
+    assert.ok(defaults.some(([sql, params]) => sql === 't.keyId NOT IN (SELECT cp.port_key_id FROM tb_srm_channel_port cp)' && !params))
+
+    const channel = await select({ channelKeyId: 3001 })
+    const bound = channel.find(([sql]) => sql.includes('tb_srm_channel_port'))
+    assert.match(bound[0], /cp\.channel_key_id <> :boundChannelKeyId/)
+    assert.deepEqual(bound[1], { boundChannelKeyId: 3001 })
+
+    const device = await select({ simbankKeyId: '100202' })
+    assert.deepEqual(device[0][1], { simbankKeyIds: [100202] })
+    assert.ok(device.some(([sql]) => sql === 't.keyId NOT IN (SELECT cp.port_key_id FROM tb_srm_channel_port cp)'))
+})
+
+test('传入的设备不属于归属人时直接返回空列表', async () => {
+    const simbank = { keyId: 100201, alias: 'RSK1233SMSA001' }
+    const service = createSimbankService(
+        {},
+        { builder: async () => assert.fail('不应查询端口') },
+        { findByOwnerUserUid: async () => ({ simbanks: [simbank], simbankOptions: new Map([[simbank.keyId, simbank]]) }) },
+        {}
+    )
+    assert.deepEqual(await service.httpBaseSrmSelectSimbankPort({ ownerUserUid: '30001', simbankKeyId: 999999 }), [])
+})
+
+test('可绑定端口入参通道ID和设备ID可选，传入时必须是正整数', async () => {
+    const ok = plainToInstance(SimbankDto.ListOwnerCountryPortDto, { ownerUserUid: '30001', channelKeyId: '3001', simbankKeyId: '100201' })
+    const okErrors = await validate(ok, { skipMissingProperties: false })
+    assert.ok(!okErrors.some(item => ['channelKeyId', 'simbankKeyId'].includes(item.property)))
+    assert.equal(ok.channelKeyId, 3001)
+    const bad = plainToInstance(SimbankDto.ListOwnerCountryPortDto, { ownerUserUid: '30001', channelKeyId: 0, simbankKeyId: 'x' })
+    const badErrors = await validate(bad)
+    assert.ok(badErrors.some(item => item.property === 'channelKeyId'))
+    assert.ok(badErrors.some(item => item.property === 'simbankKeyId'))
+})
+
 test('归属人名下没有设备时直接返回空列表', async () => {
     const service = createSimbankService(
         {},
