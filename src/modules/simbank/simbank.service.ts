@@ -306,6 +306,8 @@ export class SimbankService {
             if (isNotEmpty(input.sendStatus)) {
                 qb.andWhere('t.sendStatus = :sendStatus', { sendStatus: input.sendStatus })
             }
+            if (input.startTime) qb.andWhere('t.sendTime >= :sendTimeStart', { sendTimeStart: input.startTime })
+            if (input.endTime) qb.andWhere('t.sendTime <= :sendTimeEnd', { sendTimeEnd: input.endTime })
             qb.orderBy('t.createTime', 'DESC')
             qb.addOrderBy('t.keyId', 'DESC')
             qb.skip((page - 1) * size)

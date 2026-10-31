@@ -1,5 +1,5 @@
 import { ApiProperty, IntersectionType, PartialType, PickType } from '@nestjs/swagger'
-import { EnumsResponseDto, PageResponseDataDto } from '@wlisfes/chat-web-base-schema/decorator'
+import { EnumsResponseDto, IsDateCustomize, PageResponseDataDto } from '@wlisfes/chat-web-base-schema/decorator'
 import { PageDto, VagueDto } from '@wlisfes/chat-web-base-schema/utils'
 import { IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator'
 import { Type } from 'class-transformer'
@@ -184,7 +184,17 @@ export class ListSimbankMessageDto extends IntersectionType(
     PartialType(
         PickType(Schema.TbSrmSimbankMessageDto, ['msgId', 'channelKeyId', 'simbankKeyId', 'userKeyId', 'mcc', 'source', 'type', 'encoding', 'sendStatus'] as const)
     )
-) {}
+) {
+    @ApiProperty({ description: '发送时间起始，包含该时刻', example: '2026-10-31 00:00:00', required: false })
+    @IsOptional()
+    @IsDateCustomize({ message: '发送时间起始格式错误' })
+    startTime?: string
+
+    @ApiProperty({ description: '发送时间结束，包含该时刻', example: '2026-10-31 23:59:59', required: false })
+    @IsOptional()
+    @IsDateCustomize({ message: '发送时间结束格式错误' })
+    endTime?: string
+}
 
 /** 短信历史静态枚举响应：GET /simbank/message/enums。 */
 export class SimbankMessageEnumsResponseDto extends EnumsResponseDto({
