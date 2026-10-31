@@ -21,8 +21,8 @@ export class UpdateSimbankStatusDto extends PickType(Schema.TbSrmSimbankDto, ['k
 /** 获取设备详情入参：GET /simbank/resolve。 */
 export class ResolveSimbankDto extends PickType(Schema.TbSrmSimbankDto, ['keyId'] as const) {}
 
-/** 获取设备下拉选项入参：GET /simbank/select；name 同时模糊匹配设备名称、别名、MAC地址。 */
-export class SelectSimbankDto extends PartialType(PickType(Schema.TbSrmSimbankDto, ['name', 'userKeyId'] as const)) {}
+/** 获取设备下拉选项入参：GET /simbank/select。vague 可空，有值时模糊匹配设备名称、别名、MAC地址。 */
+export class SelectSimbankDto extends IntersectionType(PartialType(PickType(Schema.TbSrmSimbankDto, ['userKeyId'] as const)), VagueDto) {}
 
 /** 分页查询设备入参：POST /simbank/column；name 同时模糊匹配设备名称、别名、MAC地址、设备ID。 */
 export class ListSimbankDto extends IntersectionType(
@@ -182,7 +182,7 @@ export class SimbankPortKeyDto extends PickType(Schema.TbSrmSimbankPortDto, ['ke
 export class ListSimbankMessageDto extends IntersectionType(
     PageDto,
     PartialType(
-        PickType(Schema.TbSrmSimbankMessageDto, ['simbankKeyId', 'userKeyId', 'mcc', 'source', 'type', 'encoding', 'sendStatus'] as const)
+        PickType(Schema.TbSrmSimbankMessageDto, ['msgId', 'channelKeyId', 'simbankKeyId', 'userKeyId', 'mcc', 'source', 'type', 'encoding', 'sendStatus'] as const)
     )
 ) {}
 

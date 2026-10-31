@@ -519,9 +519,11 @@ test('短信历史分页按 MCC 精确过滤', async () => {
         {},
         {}
     )
-    const result = await service.httpBaseSrmColumnSimbankMessage({ page: 1, size: 20, source: 'down', mcc: ' 460 ' })
+    const result = await service.httpBaseSrmColumnSimbankMessage({ page: 1, size: 20, source: 'down', mcc: ' 460 ', msgId: ' msg-1 ', channelKeyId: 1001 })
     assert.equal(result.total, 1)
     assert.deepEqual(wheres, [
+        ['t.msgId = :msgId', { msgId: 'msg-1' }],
+        ['t.channelKeyId = :channelKeyId', { channelKeyId: 1001 }],
         ['t.mcc = :mcc', { mcc: '460' }],
         ['t.source = :source', { source: 'down' }]
     ])
@@ -569,4 +571,8 @@ test('归属人名下没有设备时直接返回空列表', async () => {
         {}
     )
     assert.deepEqual(await service.httpBaseSrmSelectSimbankPort({ countryKeyId: 1077, ownerUserUid: '30001' }), [])
+})
+
+test('设备下拉 vague 为空字符串时不校验必填', async () => {
+    assert.deepEqual(await validate(plainToInstance(SimbankDto.SelectSimbankDto, { vague: '' })), [])
 })

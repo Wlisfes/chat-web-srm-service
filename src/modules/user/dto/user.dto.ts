@@ -1,8 +1,8 @@
-import { ApiProperty, IntersectionType, OmitType, PartialType, PickType } from '@nestjs/swagger'
-import { IsDefined, ValidateNested } from 'class-validator'
+import { ApiProperty, ApiPropertyOptional, IntersectionType, OmitType, PartialType, PickType } from '@nestjs/swagger'
+import { IsDefined, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator'
 import { EnumsResponseDto, PageResponseDataDto } from '@wlisfes/chat-web-base-schema/decorator'
 import { PageDto } from '@wlisfes/chat-web-base-schema/utils'
-import { Type } from 'class-transformer'
+import { Transform, Type } from 'class-transformer'
 import * as feign from '@wlisfes/chat-web-base-schema/feign'
 import * as Schema from '@wlisfes/chat-web-base-schema'
 
@@ -33,8 +33,15 @@ export class UpdateUserStatusDto extends PickType(Schema.TbSrmUserDto, ['keyId',
 /** 获取供应商详情入参：GET /user/resolve。 */
 export class ResolveUserDto extends PickType(Schema.TbSrmUserDto, ['keyId'] as const) {}
 
-/** 获取供应商下拉选项入参：GET /user/select。 */
-export class SelectUserDto extends PartialType(PickType(Schema.TbSrmUserDto, ['name'] as const)) {}
+/** 获取供应商下拉选项入参：GET /user/select。name 可空，空字符串表示不过滤。 */
+export class SelectUserDto {
+    @ApiPropertyOptional({ description: '模糊匹配供应商名称；不传或空字符串表示不过滤', example: '昊天' })
+    @Transform(({ value }) => (typeof value === 'string' && !value.trim() ? undefined : value))
+    @IsOptional()
+    @IsString({ message: '供应商名称必须是字符串' })
+    @MaxLength(64, { message: '供应商名称长度不能超过64位' })
+    name?: string
+}
 
 /** 分页查询供应商入参：POST /user/column。 */
 export class ListUserDto extends IntersectionType(
