@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
-import { InjectRepository, DataBaseService, Repository } from '@wlisfes/chat-web-base-schema/database'
+import { InjectRepository, DataBaseService, Repository, SelectQueryBuilder } from '@wlisfes/chat-web-base-schema/database'
 import { PageResult, isNotEmpty, fetchResolver, fetchUntiePagination, fetchVagueKeyword } from '@wlisfes/chat-web-base-schema/utils'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { SimbankUtilsService } from '@/modules/simbank/simbank.utils.service'
@@ -459,10 +459,32 @@ export class SimbankService {
      * vague 模糊匹配 SIM、IMEI、ICCID；SIM 兼容传入开头的 + 号。
      */
     public async httpBaseSrmSelectSimbankPort(input: SimbankDto.ListOwnerCountryPortDto): Promise<SimbankDto.OwnerCountryPortItemDto[]> {
+        return await this.findOwnerCountryPorts(input, async qb => {
+            return await qb.getMany().then(items => ({ items, total: items.length }))
+        }).then(({ items }) => items)
+    }
+
+    /** 分页查询可绑定到通道的端口，过滤规则同 httpBaseSrmSelectSimbankPort。 */
+    public async httpBaseSrmColumnSelectSimbankPort(
+        input: SimbankDto.ColumnOwnerCountryPortDto
+    ): Promise<PageResult<SimbankDto.OwnerCountryPortItemDto>> {
+        const { page, size } = fetchUntiePagination(input)
+        return await this.findOwnerCountryPorts(input, async qb => {
+            qb.skip((page - 1) * size)
+            qb.take(size)
+            return await qb.getManyAndCount().then(([items, total]) => ({ items, total }))
+        }).then(({ items, total }) => fetchResolver({ page, size, total, list: items }))
+    }
+
+    /** 按归属人、方向、通道、设备组装可绑定端口查询，由 execute 决定是否分页。 */
+    private async findOwnerCountryPorts(
+        input: SimbankDto.ListOwnerCountryPortDto,
+        execute: (qb: SelectQueryBuilder<Schema.TbSrmSimbankPort>) => Promise<{ items: Schema.TbSrmSimbankPort[]; total: number }>
+    ): Promise<{ items: SimbankDto.OwnerCountryPortItemDto[]; total: number }> {
         return await this.simbankUtilsService.findByOwnerUserUid(input.ownerUserUid).then(async ({ simbanks, simbankOptions }) => {
             const devices = isNotEmpty(input.simbankKeyId) ? simbanks.filter(item => item.keyId === Number(input.simbankKeyId)) : simbanks
             if (devices.length === 0) {
-                return []
+                return { items: [], total: 0 }
             }
             return this.database.builder(this.portRepository, async qb => {
                 const vague = fetchVagueKeyword(input.vague)
@@ -495,15 +517,16 @@ export class SimbankService {
                 }
                 await this.database.selection(qb, [
                     ['t', ['keyId', 'port', 'sim', 'imei', 'iccid']],
-                    ['t', ['countryKeyId', 'simbankKeyId', 'insertStatus', 'activateStatus', 'status']]
+                    ['t', ['countryKeyId', 'simbankKeyId', 'insertStatus', 'activateStatus', 'status', 'online']]
                 ])
                 qb.orderBy('t.simbankKeyId', 'DESC').addOrderBy('t.port', 'ASC')
-                return await qb.getMany().then(items => {
-                    return items.map(item => {
+                return await execute(qb).then(({ items, total }) => {
+                    const list = items.map(item => {
                         const simbank = simbankOptions.get(item.simbankKeyId)
                         const showName = [simbank.alias, `端口[${item.port}]`].filter(isNotEmpty).join(' - ')
                         return { ...item, showName, simbankOptions: simbank }
                     })
+                    return { items: list, total }
                 })
             })
         })

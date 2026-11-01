@@ -634,6 +634,48 @@ test('可绑定端口入参通道ID和设备ID可选，传入时必须是正整�
     assert.ok(badErrors.some(item => item.property === 'simbankKeyId'))
 })
 
+test('分页查询可绑定端口：过滤规则同下拉，按页返回并附带设备', async () => {
+    const calls = []
+    const paging = {}
+    const qb = {
+        where: (sql, params) => (calls.push([sql, params]), qb),
+        andWhere: (sql, params) => (calls.push([sql, params]), qb),
+        orderBy: () => qb,
+        addOrderBy: () => qb,
+        skip: value => ((paging.skip = value), qb),
+        take: value => ((paging.take = value), qb),
+        getMany: async () => assert.fail('分页接口应使用 getManyAndCount'),
+        getManyAndCount: async () => [[{ keyId: 1002403, port: 3, sim: '8613800000003', simbankKeyId: 100202, countryKeyId: 1077 }], 21]
+    }
+    const simbank = { keyId: 100202, alias: 'RSK1233SMSA002', name: '昊天科技-澜沧' }
+    const service = createSimbankService(
+        {},
+        { builder: async (_repository, callback) => callback(qb), selection: async () => qb },
+        { findByOwnerUserUid: async () => ({ simbanks: [simbank], simbankOptions: new Map([[simbank.keyId, simbank]]) }) },
+        {}
+    )
+    const result = await service.httpBaseSrmColumnSelectSimbankPort({ ownerUserUid: '30001', channelKeyId: 3001, page: 3, size: 10 })
+    assert.deepEqual(paging, { skip: 20, take: 10 })
+    assert.equal(result.total, 21)
+    assert.equal(result.page, 3)
+    assert.equal(result.size, 10)
+    assert.equal(result.list[0].showName, 'RSK1233SMSA002 - 端口[3]')
+    assert.equal(result.list[0].simbankOptions.name, '昊天科技-澜沧')
+    assert.deepEqual(calls.find(([sql]) => sql.includes('tb_srm_channel_port'))[1], { boundChannelKeyId: 3001 })
+})
+
+test('分页查询可绑定端口：归属人名下没有设备时返回空分页', async () => {
+    const service = createSimbankService(
+        {},
+        { builder: async () => assert.fail('不应查询端口') },
+        { findByOwnerUserUid: async () => ({ simbanks: [], simbankOptions: new Map() }) },
+        {}
+    )
+    const result = await service.httpBaseSrmColumnSelectSimbankPort({ ownerUserUid: '30001', page: 1, size: 10 })
+    assert.equal(result.total, 0)
+    assert.deepEqual(result.list, [])
+})
+
 test('归属人名下没有设备时直接返回空列表', async () => {
     const service = createSimbankService(
         {},

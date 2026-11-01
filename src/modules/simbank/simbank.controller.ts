@@ -187,4 +187,16 @@ export class SimbankController {
     public async httpBaseSrmSelectSimbankPort(@Body() input: SimbankDto.ListOwnerCountryPortDto) {
         return this.simbankService.httpBaseSrmSelectSimbankPort(input)
     }
+
+    @ApiServiceDecorator(Post('port/select/column'), {
+        operation: { summary: '分页查询可绑定端口' },
+        request: { source: 'body', type: SimbankDto.ColumnOwnerCountryPortDto },
+        response: {
+            type: SimbankDto.OwnerCountryPortPageResponseDto,
+            description: '已激活且已插卡的可绑定端口分页数据。默认不含已绑定通道的端口；传入通道ID时包含该通道已绑定端口'
+        }
+    })
+    public async httpBaseSrmColumnSelectSimbankPort(@Body() input: SimbankDto.ColumnOwnerCountryPortDto) {
+        return this.simbankService.httpBaseSrmColumnSelectSimbankPort(input)
+    }
 }

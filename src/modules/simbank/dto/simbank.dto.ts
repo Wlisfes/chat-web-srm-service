@@ -238,6 +238,9 @@ export class ListOwnerCountryPortDto extends IntersectionType(
     VagueDto
 ) {}
 
+/** 分页查询可绑定端口入参：POST /simbank/port/select/column。过滤规则同 /simbank/port/select。 */
+export class ColumnOwnerCountryPortDto extends IntersectionType(PageDto, ListOwnerCountryPortDto) {}
+
 /** 可绑定端口所属设备摘要。 */
 export class OwnerCountryPortSimbankDto extends PickType(Schema.TbSrmSimbankDto, [
     'keyId',
@@ -260,11 +263,18 @@ export class OwnerCountryPortItemDto extends PickType(Schema.TbSrmSimbankPortDto
     'simbankKeyId',
     'insertStatus',
     'activateStatus',
-    'status'
+    'status',
+    'online'
 ] as const) {
     @ApiProperty({ description: '所属设备信息', required: false, type: OwnerCountryPortSimbankDto })
     simbankOptions?: OwnerCountryPortSimbankDto
 
     @ApiProperty({ description: '下拉展示：设备别名 - 端口号', example: 'RSK1024SMSA001 - 端口[1]' })
     showName: string
+}
+
+/** 分页查询可绑定端口响应：POST /simbank/port/select/column。 */
+export class OwnerCountryPortPageResponseDto extends PageResponseDataDto {
+    @ApiProperty({ description: '可绑定端口列表', type: [OwnerCountryPortItemDto] })
+    list: OwnerCountryPortItemDto[]
 }
