@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, IntersectionType, OmitType, PartialType, PickType } from '@nestjs/swagger'
-import { IsDefined, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator'
+import { ArrayMaxSize, IsArray, IsDefined, IsInt, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator'
 import { EnumsResponseDto, PageResponseDataDto } from '@wlisfes/chat-web-base-schema/decorator'
 import { PageDto } from '@wlisfes/chat-web-base-schema/utils'
 import { Transform, Type } from 'class-transformer'
@@ -46,8 +46,28 @@ export class SelectUserDto {
 /** 分页查询供应商入参：POST /user/column。 */
 export class ListUserDto extends IntersectionType(
     PageDto,
-    PartialType(PickType(Schema.TbSrmUserDto, ['name', 'status', 'currency', 'payMode', 'source'] as const))
-) {}
+    PartialType(PickType(Schema.TbSrmUserDto, ['name', 'alias', 'ownerUserUid', 'status', 'currency', 'payMode', 'source'] as const))
+) {
+    @ApiProperty({ description: '邮箱，模糊匹配', required: false, example: 'gmail.com' })
+    @IsOptional()
+    @IsString({ message: '邮箱必须是字符串' })
+    @MaxLength(128, { message: '邮箱最多128个字符' })
+    email?: string
+
+    @ApiProperty({
+        description: '归属部门：Skyline 组织主键集合，包含下级部门',
+        required: false,
+        type: Number,
+        isArray: true,
+        example: [1001]
+    })
+    @IsOptional()
+    @IsArray({ message: '归属部门必须是数组' })
+    @ArrayMaxSize(100, { message: '归属部门最多选择100个' })
+    @Type(() => Number)
+    @IsInt({ each: true, message: '归属部门主键必须是整数' })
+    ownerOrganizationKeyIds?: number[]
+}
 
 /** 供应商静态枚举响应：GET /user/enums。 */
 export class UserEnumsResponseDto extends EnumsResponseDto({
