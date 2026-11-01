@@ -73,7 +73,27 @@ export class UserService {
     /** 分页查询 SRM 供应商，归属人通过账号 Feign 还原为 ownerUserUidOptions（含所属组织），余额来自 Finance 供应商钱包。 */
     public async httpBaseSrmColumnUser(input: UserDto.ListUserDto): Promise<PageResult<UserDto.UserColumnResponseDto>> {
         const { page, size } = fetchUntiePagination(input)
+        /**归属部门通过 Skyline 换成部门（含下级）成员 UID，部门下没有成员时直接返回空列表**/
+        const ownerUserUids =
+            (input.ownerOrganizationKeyIds?.length ?? 0) > 0
+                ? await this.findOrganizationUserUids(input.ownerOrganizationKeyIds)
+                : undefined
+        if (ownerUserUids?.length === 0) {
+            return fetchResolver({ page, size, total: 0, list: [] })
+        }
         return this.database.builder(this.repository, async qb => {
+            if (isNotEmpty(input.alias?.trim())) {
+                qb.andWhere('t.alias LIKE :alias', { alias: `%${input.alias.trim()}%` })
+            }
+            if (isNotEmpty(input.email?.trim())) {
+                qb.andWhere('t.email LIKE :email', { email: `%${input.email.trim()}%` })
+            }
+            if (isNotEmpty(input.ownerUserUid)) {
+                qb.andWhere('t.ownerUserUid = :ownerUserUid', { ownerUserUid: input.ownerUserUid })
+            }
+            if (ownerUserUids) {
+                qb.andWhere('t.ownerUserUid IN (:...ownerUserUids)', { ownerUserUids })
+            }
             if (isNotEmpty(input.name?.trim())) {
                 qb.andWhere('(t.name LIKE :name OR t.keyId LIKE :name)', { name: `%${input.name?.trim()}%` })
             }
@@ -102,6 +122,12 @@ export class UserService {
                 return fetchResolver({ page, size, total, list: items })
             })
         })
+    }
+
+    /** 归属部门归 Skyline 管理，通过 Skyline Feign 查询部门（含下级部门）的成员 UID。 */
+    private async findOrganizationUserUids(organizationKeyIds: number[]): Promise<string[]> {
+        const authorization = feign.resolveFeignServiceAuthorization(this.configService)
+        return this.skylineFeignClient.httpBaseSkylineColumnOrganizationUserUid(authorization, { organizationKeyIds })
     }
 
     /** 获取 SRM 供应商详情，归属人通过账号 Feign 还原为 ownerUserUidOptions（含所属组织），并附带供应商配置。 */
