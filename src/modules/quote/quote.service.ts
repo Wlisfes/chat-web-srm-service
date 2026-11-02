@@ -98,8 +98,12 @@ export class SimbankQuoteService {
             const draftBatchId = randomUUID()
             const drafts = rates.map(rate => {
                 const existing = existingByCountry.get(rate.countryKeyId)
-                const upUsd = existing?.upUsd ?? rate.upUsd
-                const downUsd = existing?.downUsd ?? rate.downUsd
+                // 扣费以报价币种金额为准。已有报价沿用本币金额，并按当前汇率重算 USD 参照；新报价从基础 USD 价换算本币。
+                const rateValue = Number(exchange.rate)
+                const upLocal = existing ? existing.upLocal : Math.round(rate.upUsd * rateValue)
+                const downLocal = existing ? existing.downLocal : Math.round(rate.downUsd * rateValue)
+                const upUsd = existing ? this.simbankQuoteUtilsService.fetchReferenceUsd(upLocal, rateValue) : rate.upUsd
+                const downUsd = existing ? this.simbankQuoteUtilsService.fetchReferenceUsd(downLocal, rateValue) : rate.downUsd
                 return draftRepository.create({
                     draftBatchId,
                     userKeyId: user.keyId,
@@ -112,8 +116,8 @@ export class SimbankQuoteService {
                     upUsd,
                     downUsd,
                     currency: exchange.currency,
-                    upLocal: Math.round(upUsd * exchange.rate),
-                    downLocal: Math.round(downUsd * exchange.rate),
+                    upLocal,
+                    downLocal,
                     exchangeRate: exchange.rate,
                     exchangeDate: exchange.date,
                     effectiveTime: existing?.effectiveTime,
@@ -164,18 +168,30 @@ export class SimbankQuoteService {
         principal: AuthPrincipal,
         body: SimbankQuoteDto.UpdateSimbankQuoteDraftDto
     ): Promise<SimbankQuoteDto.SimbankQuoteDraftListItemResponseDto> {
-        if ([body.upUsd, body.downUsd, body.effectiveTime].every(value => !isNotEmpty(value))) {
-            throw new BadRequestException('上行费率、下行费率、生效时间至少修改一项')
+        if ([body.upLocal, body.downLocal, body.upUsd, body.downUsd, body.effectiveTime].every(value => !isNotEmpty(value))) {
+            throw new BadRequestException('报价币种费率、参照金额、生效时间至少修改一项')
         }
         return this.draftRepository.manager
             .transaction(async manager => {
                 const draft = await this.simbankQuoteUtilsService.findDraft(body.keyId, manager)
-                // 只修改传入的字段；费率变更时按草稿汇率同步重算对应的本币价格。
-                if (isNotEmpty(body.upUsd)) {
+                // 报价和扣费以报价币种金额为准。传入本币时反算 USD 参照；只传 USD 时仍换算本币，兼容旧调用。
+                if (isNotEmpty(body.upLocal)) {
+                    const upLocal = Math.round(fetchZoomNumber(Number(body.upLocal)))
+                    manager.merge(Schema.TbSrmSimbankQuoteDraft, draft, {
+                        upLocal,
+                        upUsd: this.simbankQuoteUtilsService.fetchReferenceUsd(upLocal, draft.exchangeRate)
+                    })
+                } else if (isNotEmpty(body.upUsd)) {
                     const upUsd = Math.round(fetchZoomNumber(Number(body.upUsd)))
                     manager.merge(Schema.TbSrmSimbankQuoteDraft, draft, { upUsd, upLocal: Math.round(upUsd * Number(draft.exchangeRate)) })
                 }
-                if (isNotEmpty(body.downUsd)) {
+                if (isNotEmpty(body.downLocal)) {
+                    const downLocal = Math.round(fetchZoomNumber(Number(body.downLocal)))
+                    manager.merge(Schema.TbSrmSimbankQuoteDraft, draft, {
+                        downLocal,
+                        downUsd: this.simbankQuoteUtilsService.fetchReferenceUsd(downLocal, draft.exchangeRate)
+                    })
+                } else if (isNotEmpty(body.downUsd)) {
                     const downUsd = Math.round(fetchZoomNumber(Number(body.downUsd)))
                     manager.merge(Schema.TbSrmSimbankQuoteDraft, draft, {
                         downUsd,

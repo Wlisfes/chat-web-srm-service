@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { InjectRepository, Brackets, DataBaseService, EntityManager } from '@wlisfes/chat-web-base-schema/database'
 import { QueryRunner, Repository, SelectQueryBuilder } from '@wlisfes/chat-web-base-schema/database'
 import { isNotEmpty } from '@wlisfes/chat-web-base-schema/utils'
@@ -49,7 +49,16 @@ export class SimbankQuoteUtilsService {
             : Schema.TbSrmSimbankQuoteDraftChangeStatus.DECREASE
     }
 
-    /**为草稿列表追加现行报价原价与上下行价格变更状态；金额保持放大百万倍的存储值，由前端自行转换。*/
+    /**报价币种金额换算为 USD 参照金额。汇率是 USD 到报价币种，两边都是放大百万倍的存储值。该金额只用于报表统计，不参与扣费。*/
+    public fetchReferenceUsd(local: number, exchangeRate: number | string): number {
+        const rate = Number(exchangeRate)
+        if (!Number.isFinite(rate) || rate <= 0) {
+            throw new BadRequestException('报价汇率无效，无法换算 USD 参照金额')
+        }
+        return Math.round(Number(local) / rate)
+    }
+
+    /**为草稿列表追加现行报价原价与上下行价格变更状态；涨跌按报价币种金额对比，金额保持放大百万倍的存储值。*/
     public async fetchDraftChangeList(list: Schema.TbSrmSimbankQuoteDraft[]) {
         const existingMap = new Map<string, Schema.TbSrmSimbankQuote>()
         const scopes = new Map<string, Schema.TbSrmSimbankQuoteDraft[]>()
@@ -69,13 +78,16 @@ export class SimbankQuoteUtilsService {
                 ...item,
                 existingUpUsd: existing ? existing.upUsd : null,
                 existingDownUsd: existing ? existing.downUsd : null,
-                upStatus: this.fetchChangeStatus(item.upUsd, existing?.upUsd),
-                downStatus: this.fetchChangeStatus(item.downUsd, existing?.downUsd)
+                existingUpLocal: existing ? existing.upLocal : null,
+                existingDownLocal: existing ? existing.downLocal : null,
+                // 扣费和涨跌都按报价币种金额；USD 只是参照，不参与对比。
+                upStatus: this.fetchChangeStatus(item.upLocal, existing?.upLocal),
+                downStatus: this.fetchChangeStatus(item.downLocal, existing?.downLocal)
             }
         })
     }
 
-    /**统计草稿批次（仅有效草稿，不含软删除）：报价条目、国家/地区、新增/涨价/降价（上行或下行任一满足）、定时生效数。*/
+    /**统计草稿批次（仅有效草稿，不含软删除）：报价条目、国家/地区、新增/涨价/降价（上行或下行报价币种金额任一满足）、定时生效数。*/
     public async fetchDraftSummary(draftBatchId: string) {
         const drafts = await this.database.builder(this.draftRepository, qb => {
             qb.where('t.draftBatchId = :draftBatchId', { draftBatchId })
