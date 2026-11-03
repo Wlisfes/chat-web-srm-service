@@ -85,6 +85,30 @@ export class UpdateSimbankQuoteDraftDto {
     @Min(0, { message: '下行短信成本价不能小于0' })
     downUsd?: number
 
+    @ApiProperty({
+        description:
+            '上行短信成本价报价币种金额（实际金额，最多6位小数，服务端放大百万倍存储，按此扣费）；不传则不修改。传入后按汇率反算 USD 参照金额',
+        required: false,
+        example: 0.03
+    })
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber({ maxDecimalPlaces: 6 }, { message: '上行短信成本价报价币种金额必须是数字且最多6位小数' })
+    @Min(0, { message: '上行短信成本价报价币种金额不能小于0' })
+    upLocal?: number
+
+    @ApiProperty({
+        description:
+            '下行短信成本价报价币种金额（实际金额，最多6位小数，服务端放大百万倍存储，按此扣费）；不传则不修改。传入后按汇率反算 USD 参照金额',
+        required: false,
+        example: 0.05
+    })
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber({ maxDecimalPlaces: 6 }, { message: '下行短信成本价报价币种金额必须是数字且最多6位小数' })
+    @Min(0, { message: '下行短信成本价报价币种金额不能小于0' })
+    downLocal?: number
+
     @ApiProperty({ description: '生效时间；不传则不修改', required: false, example: '2026-08-24 00:00:00' })
     @IsOptional()
     @Matches(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})?$/, { message: '生效时间格式错误' })
@@ -180,6 +204,20 @@ export class SimbankQuoteDraftListItemResponseDto extends Schema.TbSrmSimbankQuo
         nullable: true
     })
     existingDownUsd: number | null
+
+    @ApiProperty({
+        description: '现行报价上行报价币种金额（原价，放大百万倍存储值，按此扣费）；当前 simbank 无该国家报价时为 null',
+        example: 30000,
+        nullable: true
+    })
+    existingUpLocal: number | null
+
+    @ApiProperty({
+        description: '现行报价下行报价币种金额（原价，放大百万倍存储值，按此扣费）；当前 simbank 无该国家报价时为 null',
+        example: 50000,
+        nullable: true
+    })
+    existingDownLocal: number | null
 
     @ApiProperty({
         description: '上行价格变更状态',

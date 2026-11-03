@@ -33,7 +33,12 @@ function createService({ existing = new Map(), rates, user = supplier, device = 
             return { currency: input.currency, rate: 7.2, date: '2026-10-26' }
         }
     }
-    const utils = { findExistingQuoteMap: async () => existing }
+    const utils = {
+        findExistingQuoteMap: async () => existing,
+        fetchReferenceUsd(local, exchangeRate) {
+            return Math.round(Number(local) / Number(exchangeRate))
+        }
+    }
     const users = { findRequired: async () => user, findByKeyIds: async () => [] }
     const simbanks = { findRequired: async () => device }
     const config = { get: () => 'service-token' }
@@ -60,7 +65,9 @@ test('初始化草稿：取 Finance simbank 基础成本价，按供应商币种
 })
 
 test('初始化草稿：已有现行报价的国家沿用现行价和生效时间', async () => {
-    const existing = new Map([[1077, { upUsd: 1200, downUsd: 3000, effectiveTime: '2026-11-01 00:00:00', remark: '旧价' }]])
+    const existing = new Map([
+        [1077, { upUsd: 1200, downUsd: 3000, upLocal: 8640, downLocal: 21600, effectiveTime: '2026-11-01 00:00:00', remark: '旧价' }]
+    ])
     const { service, saved } = createService({ existing })
     await service.httpBaseSrmSimbankInitQuoteDraft(principal, {
         userKeyId: supplier.keyId,
