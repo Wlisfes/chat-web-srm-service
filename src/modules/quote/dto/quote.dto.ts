@@ -86,7 +86,8 @@ export class UpdateSimbankQuoteDraftDto {
     downUsd?: number
 
     @ApiProperty({
-        description: '上行短信成本价报价币种金额（实际金额，最多6位小数，服务端放大百万倍存储，按此扣费）；不传则不修改。传入后按汇率反算 USD 参照金额',
+        description:
+            '上行短信成本价报价币种金额（实际金额，最多6位小数，服务端放大百万倍存储，按此扣费）；不传则不修改。传入后按汇率反算 USD 参照金额',
         required: false,
         example: 0.03
     })
@@ -97,7 +98,8 @@ export class UpdateSimbankQuoteDraftDto {
     upLocal?: number
 
     @ApiProperty({
-        description: '下行短信成本价报价币种金额（实际金额，最多6位小数，服务端放大百万倍存储，按此扣费）；不传则不修改。传入后按汇率反算 USD 参照金额',
+        description:
+            '下行短信成本价报价币种金额（实际金额，最多6位小数，服务端放大百万倍存储，按此扣费）；不传则不修改。传入后按汇率反算 USD 参照金额',
         required: false,
         example: 0.05
     })
