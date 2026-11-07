@@ -26,6 +26,15 @@ export class UserController {
         return this.userService.httpBaseSrmUserFaker()
     }
 
+    @ApiServiceDecorator(Get('email/validate'), {
+        operation: { summary: '校验供应商邮箱是否可用' },
+        request: { source: 'query', type: UserDto.ValidateUserEmailDto },
+        response: { type: UserDto.UserEmailValidateResponseDto, description: '邮箱校验结果' }
+    })
+    public async httpBaseSrmValidateUserEmail(@Query() query: UserDto.ValidateUserEmailDto) {
+        return this.userService.httpBaseSrmValidateUserEmail(query)
+    }
+
     @ApiServiceDecorator(Post('create'), {
         operation: { summary: '新增供应商' },
         request: { source: 'body', type: UserDto.CreateUserDto },

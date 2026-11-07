@@ -42,4 +42,12 @@ export class FeignService extends FeignSchema.FeignClientSrmManager implements F
             list: result.list ?? []
         }
     }
+
+    /** 判断邮箱是否已被供应商使用。 */
+    public override async httpBaseSrmUserEmailExists(
+        _authorization: string,
+        input: FeignSchema.SrmUserEmailExistsInput
+    ): Promise<FeignSchema.SrmUserEmailExists> {
+        return { exists: await this.userUtilsService.emailExists(input.email) }
+    }
 }

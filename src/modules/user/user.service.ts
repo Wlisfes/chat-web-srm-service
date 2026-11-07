@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { ConflictException, Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { type AuthPrincipal } from '@wlisfes/chat-web-base-schema/auth'
 import { UserUtilsService } from '@/modules/user/user.utils.service'
@@ -43,12 +43,13 @@ export class UserService {
 
     /** 编辑 SRM 供应商。 */
     public async httpBaseSrmUpdateUser(input: UserDto.UpdateUserDto): Promise<Schema.TbSrmUser> {
+        await this.userUtilsService.assertEmailAvailable(input.email, input.keyId)
         const result = await this.repository.manager.transaction(async manager => {
             const user = await this.userUtilsService.findRequired(input.keyId, manager)
             manager.merge(Schema.TbSrmUser, user, {
                 name: input.name,
                 currency: input.currency,
-                email: input.email,
+                email: input.email?.trim(),
                 phone: input.phone,
                 payMode: input.payMode,
                 remark: input.remark
@@ -57,6 +58,27 @@ export class UserService {
         })
         await this.routeConfigEventService.publish(`供应商变更：keyId=${input.keyId}`)
         return result
+    }
+
+    /** 校验邮箱是否可以注册为供应商。已被供应商或客户使用时返回不可用原因，供表单异步校验。 */
+    public async httpBaseSrmValidateUserEmail(query: UserDto.ValidateUserEmailDto): Promise<UserDto.UserEmailValidateResponseDto> {
+        try {
+            await this.userUtilsService.assertEmailAvailable(query.email, query.keyId)
+            return { available: true }
+        } catch (error) {
+            if (error instanceof ConflictException) {
+                const response = error.getResponse()
+                const raw =
+                    typeof response === 'string'
+                        ? response
+                        : response && typeof response === 'object' && 'message' in response
+                          ? response.message
+                          : undefined
+                const message = Array.isArray(raw) ? raw.join('，') : typeof raw === 'string' ? raw : undefined
+                return { available: false, message: message || '邮箱已被使用' }
+            }
+            throw error
+        }
     }
 
     /** 更新 SRM 供应商状态。 */

@@ -63,7 +63,7 @@ function createContext(config) {
         calls,
         walletCalls,
         manager,
-        service: new UserUtilsService(repository, configRepository, database, finance, configService)
+        service: new UserUtilsService(repository, configRepository, database, finance, {}, configService)
     }
 }
 
