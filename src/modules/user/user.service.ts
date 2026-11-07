@@ -61,9 +61,9 @@ export class UserService {
     }
 
     /** 校验邮箱是否可以注册为供应商。已被供应商或客户使用时返回不可用原因，供表单异步校验。 */
-    public async httpBaseSrmValidateUserEmail(query: UserDto.ValidateUserEmailDto): Promise<UserDto.UserEmailValidateResponseDto> {
+    public async httpBaseSrmValidateUserEmail(input: UserDto.ValidateUserEmailDto): Promise<UserDto.UserEmailValidateResponseDto> {
         try {
-            await this.userUtilsService.assertEmailAvailable(query.email, query.keyId)
+            await this.userUtilsService.assertEmailAvailable(input.email, input.keyId)
             return { available: true }
         } catch (error) {
             if (error instanceof ConflictException) {

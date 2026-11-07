@@ -179,7 +179,7 @@ export class UserContactPageResponseDto extends PageResponseDataDto {
     list: UserContactColumnResponseDto[]
 }
 
-/** 校验邮箱是否可用入参：GET /user/email/validate。编辑时传当前主键以排除自身。 */
+/** 校验邮箱是否可用入参：POST /user/email/validate。编辑时传当前主键以排除自身。 */
 export class ValidateUserEmailDto {
     @ApiProperty({ description: '邮箱', example: 'consumer@example.com' })
     @IsEmail({}, { message: '邮箱格式错误' })
@@ -194,7 +194,7 @@ export class ValidateUserEmailDto {
     keyId?: number
 }
 
-/** 邮箱校验响应：GET /user/email/validate。 */
+/** 邮箱校验响应：POST /user/email/validate。 */
 export class UserEmailValidateResponseDto {
     @ApiProperty({ description: '邮箱是否可以使用', example: true })
     available: boolean
