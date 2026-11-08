@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional, IntersectionType, OmitType, PartialType, PickType } from '@nestjs/swagger'
-import { ArrayMaxSize, IsArray, IsDefined, IsInt, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator'
+import { IsEmail, ArrayMaxSize, IsArray, IsDefined, IsInt, IsOptional, Min, IsString, MaxLength, ValidateNested } from 'class-validator'
 import { EnumsResponseDto, PageResponseDataDto } from '@wlisfes/chat-web-base-schema/decorator'
 import { PageDto } from '@wlisfes/chat-web-base-schema/utils'
 import { Transform, Type } from 'class-transformer'
@@ -177,4 +177,28 @@ export class UserContactColumnResponseDto extends Schema.TbSrmUserContactDto {
 export class UserContactPageResponseDto extends PageResponseDataDto {
     @ApiProperty({ description: '联系人列表', type: [UserContactColumnResponseDto] })
     list: UserContactColumnResponseDto[]
+}
+
+/** 校验邮箱是否可用入参：POST /user/email/validate。编辑时传当前主键以排除自身。 */
+export class ValidateUserEmailDto {
+    @ApiProperty({ description: '邮箱', example: 'consumer@example.com' })
+    @IsEmail({}, { message: '邮箱格式错误' })
+    @MaxLength(128, { message: '邮箱长度不能超过128位' })
+    email: string
+
+    @ApiProperty({ description: '编辑时排除的账号主键', required: false, example: 10241000 })
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt({ message: '账号主键必须是整数' })
+    @Min(1, { message: '账号主键必须大于0' })
+    keyId?: number
+}
+
+/** 邮箱校验响应：POST /user/email/validate。 */
+export class UserEmailValidateResponseDto {
+    @ApiProperty({ description: '邮箱是否可以使用', example: true })
+    available: boolean
+
+    @ApiProperty({ description: '不可用时的原因', required: false, example: '该邮箱已注册为供应商' })
+    message?: string
 }

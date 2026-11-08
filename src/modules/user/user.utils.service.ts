@@ -4,6 +4,7 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import { ConfigService } from '@nestjs/config'
 import { InjectRepository, DataBaseService, EntityManager, In, Repository } from '@wlisfes/chat-web-base-schema/database'
 import {
+    FeignClientCrmManager,
     FeignClientFinanceManager,
     resolveFeignServiceAuthorization,
     type FinanceSrmUserSummary
@@ -35,6 +36,7 @@ export class UserUtilsService {
         @InjectRepository(Schema.TbSrmUserConfig) private readonly configRepository: Repository<Schema.TbSrmUserConfig>,
         private readonly database: DataBaseService,
         private readonly financeFeignClient: FeignClientFinanceManager,
+        private readonly crmFeignClient: FeignClientCrmManager,
         private readonly configService: ConfigService
     ) {}
 
@@ -181,6 +183,7 @@ export class UserUtilsService {
         if (!input.contact) {
             throw new BadRequestException('新增供应商必须填写联系人信息')
         }
+        await this.assertEmailAvailable(input.email)
         const user = await this.repository.manager.transaction(async manager => {
             const alias = await this.generateAlias(manager, input.ownerUserNumber)
             const created = await manager.save(this.buildUser(manager, { ...input, alias }))
@@ -239,7 +242,7 @@ export class UserUtilsService {
             name: input.name,
             alias: input.alias,
             currency: input.currency,
-            email: input.email,
+            email: input.email?.trim(),
             phone: input.phone,
             status: input.status ?? Schema.TbSrmUserStatus.ENABLE,
             payMode: input.payMode,
@@ -284,6 +287,52 @@ export class UserUtilsService {
             return new Map(results.flat().map(account => [account.userKeyId, account]))
         } catch (error) {
             this.logger.warn(`查询 Finance 供应商钱包失败，余额暂不展示：${error instanceof Error ? error.message : String(error)}`)
+            return undefined
+        }
+    }
+
+    /** 判断邮箱是否已被其他供应商使用；编辑时排除当前供应商。 */
+    public async emailExists(email: string, excludedKeyId?: number): Promise<boolean> {
+        const value = email.trim()
+        if (!value) {
+            return false
+        }
+        return this.database.builder(this.repository, qb => {
+            qb.where('t.email = :email', { email: value })
+            if (isNotEmpty(excludedKeyId)) {
+                qb.andWhere('t.keyId <> :excludedKeyId', { excludedKeyId })
+            }
+            return qb.getExists()
+        })
+    }
+
+    /** 校验邮箱可以注册为供应商：不能与已有供应商或客户重复。 */
+    public async assertEmailAvailable(email: string | undefined, excludedKeyId?: number): Promise<void> {
+        const value = email?.trim()
+        if (!isNotEmpty(value)) {
+            return
+        }
+        if (await this.emailExists(value, excludedKeyId)) {
+            throw new ConflictException('该邮箱已注册为供应商')
+        }
+        const customerExists = await this.customerEmailExists(value)
+        if (customerExists === undefined) {
+            throw new ServiceUnavailableException('邮箱校验暂时不可用，请稍后重试')
+        }
+        if (customerExists) {
+            throw new ConflictException('该邮箱已注册为客户')
+        }
+    }
+
+    /** 询问客户是否已使用该邮箱；对方服务不可用时返回 undefined。 */
+    private async customerEmailExists(email: string): Promise<boolean | undefined> {
+        try {
+            const result = await this.crmFeignClient.httpBaseCrmUserEmailExists(resolveFeignServiceAuthorization(this.configService), {
+                email
+            })
+            return result.exists
+        } catch (error) {
+            this.logger.warn(`查询客户邮箱占用失败：${error instanceof Error ? error.message : String(error)}`)
             return undefined
         }
     }
